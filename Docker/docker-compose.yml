@@ -1,0 +1,31 @@
+# APK:plugin:PTP — PTP v1 + v2 + gPTP listener, one container — the other holding NET_RAW.
+#     COMPOSE_PROFILES=l2 docker compose -f 'APK:PODS/POD:APK/APK:plugin:PTP/Docker/docker-compose.yml' up -d --build
+# Normally started with the other plugins, by node role (see APK:plugins:Build):
+#     COMPOSE_PROFILES=discovery,l2 docker compose -f 'APK:PODS/POD:APK/APK:plugins:Build/Docker/docker-compose.yml' up -d
+# The image, the capability floor, the broker variables and the healthcheck are
+# the base service in APK:plugins:Build/Docker/plugin-base.yml; this file says
+# only what is THIS plugin's. No bind mounts, so no `bind:` sub-key to carry.
+
+# ONE PROJECT WITH THE REST (`apk-audio`), so the plugins clump with the node.
+name: apk-audio
+
+services:
+  ptp:
+    extends:
+      file: "../../APK:plugins:Build/Docker/plugin-base.yml"
+      service: plugin-host
+    container_name: Plugin-PTP
+    command: ["apk-ptp"]
+    profiles: [l2]
+    # THE OTHER PLUGIN HOLDING A RAW CAPABILITY: gPTP over raw Ethernet, and
+    # PTPv1/v2 on UDP 319/320, below 1024. Without NET_BIND_SERVICE the agent
+    # reports `partial` — it still hears gPTP, and every UDP clock is invisible.
+    cap_add: [NET_RAW, NET_BIND_SERVICE]
+
+volumes:
+  # LOGGER STORAGE — owned by DATABSE:volume:Log STORAGE, which is up first.
+  apk-audio-logs:
+    name: apk-audio-logs
+    external: true
+  mac-lookup-cache:
+    name: apk-audio-mac-lookup-cache

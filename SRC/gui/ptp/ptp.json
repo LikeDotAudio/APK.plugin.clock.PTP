@@ -1,0 +1,358 @@
+{
+  "ptp_Console": {
+    "type": "OcaBin",
+    "id": "50.100.25.1",
+    "geometry": {
+      "anchor": "NSEW"
+    },
+    "behavior": {
+      "overflow_ns": "auto",
+      "overflow_ew": "auto",
+      "fluid_ew": true
+    },
+    "description": {
+      "En": "PTP port — ${model}",
+      "Fr": "PTP port — ${model}",
+      "De": "PTP port — ${model}",
+      "Es": "PTP port — ${model}"
+    },
+    "blocks": {
+      "Identity": {
+        "type": "OcaBlock",
+        "description": {
+          "En": "PTP port",
+          "Fr": "Identité",
+          "De": "Identität",
+          "Es": "Identidad",
+          "show_label": true
+        },
+        "layout_columns": 2,
+        "layout": {
+          "pady": 4,
+          "sticky": "nsew"
+        },
+        "fields": {
+          "clock_id": {
+            "type": "_TextInput",
+            "label": {
+              "En": "Clock ID",
+              "Fr": "Clock ID",
+              "De": "Clock ID",
+              "Es": "Clock ID"
+            },
+            "value_default": "---",
+            "device_state": "clock_id",
+            "read_only": true,
+            "layout": {
+              "width": "100%",
+              "font": 13
+            }
+          },
+          "vendor": {
+            "type": "_TextInput",
+            "label": {
+              "En": "Vendor",
+              "Fr": "Vendor",
+              "De": "Vendor",
+              "Es": "Vendor"
+            },
+            "value_default": "---",
+            "device_state": "vendor",
+            "read_only": true,
+            "layout": {
+              "width": "100%",
+              "font": 13
+            }
+          },
+          "port": {
+            "type": "_TextInput",
+            "label": {
+              "En": "Port",
+              "Fr": "Port",
+              "De": "Port",
+              "Es": "Port"
+            },
+            "value_default": "---",
+            "device_state": "port",
+            "read_only": true,
+            "layout": {
+              "width": "100%",
+              "font": 13
+            }
+          },
+          "variant": {
+            "type": "_TextInput",
+            "label": {
+              "En": "Variant",
+              "Fr": "Variant",
+              "De": "Variant",
+              "Es": "Variant"
+            },
+            "value_default": "---",
+            "device_state": "variant",
+            "read_only": true,
+            "layout": {
+              "width": "100%",
+              "font": 13
+            }
+          },
+          "subdomain": {
+            "type": "_TextInput",
+            "label": {
+              "En": "Subdomain",
+              "Fr": "Subdomain",
+              "De": "Subdomain",
+              "Es": "Subdomain"
+            },
+            "value_default": "---",
+            "device_state": "subdomain",
+            "read_only": true,
+            "layout": {
+              "width": "100%",
+              "font": 13
+            }
+          },
+          "domain": {
+            "type": "_TextInput",
+            "label": {
+              "En": "Domain",
+              "Fr": "Domain",
+              "De": "Domain",
+              "Es": "Domain"
+            },
+            "value_default": "---",
+            "device_state": "domain",
+            "read_only": true,
+            "layout": {
+              "width": "100%",
+              "font": 13
+            }
+          },
+          "role": {
+            "type": "_TextInput",
+            "label": {
+              "En": "Role",
+              "Fr": "Role",
+              "De": "Role",
+              "Es": "Role"
+            },
+            "value_default": "---",
+            "device_state": "role",
+            "read_only": true,
+            "layout": {
+              "width": "100%",
+              "font": 13
+            }
+          },
+          "messages": {
+            "type": "_TextInput",
+            "label": {
+              "En": "Messages",
+              "Fr": "Messages",
+              "De": "Messages",
+              "Es": "Messages"
+            },
+            "value_default": "---",
+            "device_state": "messages",
+            "read_only": true,
+            "layout": {
+              "width": "100%",
+              "font": 13
+            }
+          },
+          "grandmaster": {
+            "type": "_TextInput",
+            "label": {
+              "En": "Grandmaster",
+              "Fr": "Grandmaster",
+              "De": "Grandmaster",
+              "Es": "Grandmaster"
+            },
+            "value_default": "---",
+            "device_state": "grandmaster",
+            "read_only": true,
+            "layout": {
+              "width": "100%",
+              "font": 13
+            }
+          },
+          "gm_class": {
+            "type": "_TextInput",
+            "label": {
+              "En": "GM class",
+              "Fr": "GM class",
+              "De": "GM class",
+              "Es": "GM class"
+            },
+            "value_default": "---",
+            "device_state": "gm_class",
+            "read_only": true,
+            "layout": {
+              "width": "100%",
+              "font": 13
+            }
+          },
+          "gm_class_meaning": {
+            "type": "_TextInput",
+            "label": {
+              "En": "GM class meaning",
+              "Fr": "GM class meaning",
+              "De": "GM class meaning",
+              "Es": "GM class meaning"
+            },
+            "value_default": "---",
+            "device_state": "gm_class_meaning",
+            "read_only": true,
+            "layout": {
+              "width": "100%",
+              "font": 13
+            }
+          },
+          "gm_accuracy": {
+            "type": "_TextInput",
+            "label": {
+              "En": "GM accuracy",
+              "Fr": "GM accuracy",
+              "De": "GM accuracy",
+              "Es": "GM accuracy"
+            },
+            "value_default": "---",
+            "device_state": "gm_accuracy",
+            "read_only": true,
+            "layout": {
+              "width": "100%",
+              "font": 13
+            }
+          },
+          "time_source": {
+            "type": "_TextInput",
+            "label": {
+              "En": "Time source",
+              "Fr": "Time source",
+              "De": "Time source",
+              "Es": "Time source"
+            },
+            "value_default": "---",
+            "device_state": "time_source",
+            "read_only": true,
+            "layout": {
+              "width": "100%",
+              "font": 13
+            }
+          },
+          "steps_removed": {
+            "type": "_TextInput",
+            "label": {
+              "En": "Steps removed",
+              "Fr": "Steps removed",
+              "De": "Steps removed",
+              "Es": "Steps removed"
+            },
+            "value_default": "---",
+            "device_state": "steps_removed",
+            "read_only": true,
+            "layout": {
+              "width": "100%",
+              "font": 13
+            }
+          },
+          "priority1": {
+            "type": "_TextInput",
+            "label": {
+              "En": "Priority 1",
+              "Fr": "Priority 1",
+              "De": "Priority 1",
+              "Es": "Priority 1"
+            },
+            "value_default": "---",
+            "device_state": "priority1",
+            "read_only": true,
+            "layout": {
+              "width": "100%",
+              "font": 13
+            }
+          },
+          "priority2": {
+            "type": "_TextInput",
+            "label": {
+              "En": "Priority 2",
+              "Fr": "Priority 2",
+              "De": "Priority 2",
+              "Es": "Priority 2"
+            },
+            "value_default": "---",
+            "device_state": "priority2",
+            "read_only": true,
+            "layout": {
+              "width": "100%",
+              "font": 13
+            }
+          },
+          "sync_interval_s": {
+            "type": "_TextInput",
+            "label": {
+              "En": "Sync interval (s)",
+              "Fr": "Sync interval (s)",
+              "De": "Sync interval (s)",
+              "Es": "Sync interval (s)"
+            },
+            "value_default": "---",
+            "device_state": "sync_interval_s",
+            "read_only": true,
+            "layout": {
+              "width": "100%",
+              "font": 13
+            }
+          },
+          "two_step": {
+            "type": "_TextInput",
+            "label": {
+              "En": "Two step",
+              "Fr": "Two step",
+              "De": "Two step",
+              "Es": "Two step"
+            },
+            "value_default": "---",
+            "device_state": "two_step",
+            "read_only": true,
+            "layout": {
+              "width": "100%",
+              "font": 13
+            }
+          },
+          "status": {
+            "type": "_SmartLight",
+            "label": {
+              "En": "Status",
+              "Fr": "Status",
+              "De": "Status",
+              "Es": "Status"
+            },
+            "value_default": "unknown",
+            "device_state": "status",
+            "notes": "A state, not a string: contracts/tokens/state.json decides the colour a _SmartLight draws. Every other field on this panel is a read-only _TextInput because a string is all it is.",
+            "layout": {
+              "width": "100%"
+            }
+          },
+          "last_seen": {
+            "type": "_TextInput",
+            "label": {
+              "En": "Last seen",
+              "Fr": "Last seen",
+              "De": "Last seen",
+              "Es": "Last seen"
+            },
+            "value_default": "---",
+            "device_state": "last_seen",
+            "read_only": true,
+            "layout": {
+              "width": "100%",
+              "font": 13
+            }
+          }
+        }
+      }
+    }
+  }
+}

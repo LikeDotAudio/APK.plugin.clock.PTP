@@ -1,0 +1,35 @@
+[package]
+name = "apkaudio-ptp"
+version = "0.1.0"
+edition.workspace = true
+workspace = "../../APK:plugins:Build/SRC"
+
+# PTP spans two transports: UDP (privileged ports 319/320) and raw Ethernet
+# (EtherType 0x88F7 for gPTP). libc is needed directly for AF_PACKET, which std
+# does not expose; socket2 for SO_REUSEPORT on the shared UDP ports.
+[dependencies]
+# The container entry point in src/bin/apk-ptp.rs (PLAN-3316.01).
+apk-plugin-runner = { path = "../../APK:plugins:Build/SRC/RUNNER" }
+apkaudio-contracts = { path = "../../APK:BareMetal/SRC/contracts/rust" }
+libc = "0.2"
+socket2 = "0.6"
+rumqttc = "0.24"
+
+# A clock identity is a MAC with FF:FE inserted, so the OUI in it names the
+# manufacturer. Non-blocking by contract — see the crate docs; this agent
+# resolves from a capture thread.
+apkaudio-maclookup = { path = "../../APK:lib:MAC_LOOKUP/SRC" }
+
+parking_lot = { version = "0.12", optional = true }
+pyo3 = { version = "0.21.2", optional = true }
+
+[features]
+python = ["dep:pyo3", "dep:parking_lot"]
+
+[[bin]]
+name = "ptp-monitor"
+path = "src/bin/ptp-monitor.rs"
+
+[[bin]]
+name = "apk-ptp"
+path = "src/bin/apk-ptp.rs"
