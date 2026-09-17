@@ -19,7 +19,7 @@ use crate::monitor::{ClockTable, Observation, Transports};
 use std::time::{Duration, Instant};
 use apkaudio_contracts::agent_counters::Sampler;
 use apkaudio_contracts::agent_state::AgentReport;
-use apkaudio_contracts::device_publish::{Register, Sighting};
+use apkaudio_contracts::device_publish::Sighting;
 use apkaudio_contracts::device_record::DeviceRecordStatus;
 use apkaudio_contracts::presence;
 use apkaudio_contracts::topics::{sanitize_segment, TopicError};
@@ -157,10 +157,10 @@ pub fn run_listen_agent(mqtt_host: &str, mqtt_port: u16) {
     // than the total: `Sampler` counters are monotonic and take increments.
     let mut reported = Totals::default();
     let mut published: std::collections::HashMap<String, String> = Default::default();
-    // The clocks as one document each, on the topic the NMOS bridge reads.
-    // The twenty-two retained attributes stay where they are: they live under
-    // `System/Protocols/…`, which `element.rs` treats as an agent root.
-    let mut discovered = Register::new();
+    // The clocks as one presence document each (PLAN-3318.01), through
+    // `apk_plugin_runner::presence`. The twenty-two retained attributes stay
+    // where they are: they live under `System/Protocols/…`, which `element.rs`
+    // treats as an agent root.
     // Start the clock in the past so the first flush lands at FIRST_FLUSH.
     let mut last_flush = Instant::now()
         .checked_sub(HEARTBEAT - FIRST_FLUSH)
@@ -222,7 +222,7 @@ pub fn run_listen_agent(mqtt_host: &str, mqtt_port: u16) {
                 // announces. Without this sweep the dead master stays elected
                 // and every clock under it keeps reporting itself healthy.
                 diagnostics.settle(last_flush);
-                flush(&mqtt_client, &mut table, &mut published, &mut discovered, &vendors, &diagnostics);
+                flush(&mqtt_client, &mut table, &mut published, &vendors, &diagnostics);
                 diagnostics.retain_ports(|key| table.clocks.contains_key(key));
                 count_faults(&mut counters, &mut reported, diagnostics.totals());
                 report_reception(&mqtt_client, &counters, !transports.udp.is_empty());
@@ -237,7 +237,6 @@ fn flush(
     mqtt_client: &rumqttc::Client,
     table: &mut ClockTable,
     published: &mut std::collections::HashMap<String, String>,
-    discovered: &mut Register,
     vendors: &apkaudio_maclookup::MacVendors,
     diagnostics: &Diagnostics,
 ) {
@@ -312,7 +311,7 @@ fn flush(
         // age. Both presence fields are constants now — `-1` and the arrival
         // stamp — so a clock that has not changed writes nothing at all, and
         // the exception is gone with the thing that needed it.
-        // The same clock as a DeviceRecord.
+        // The same clock as presence (PLAN-3318.01) — active since first heard.
         //
         // IDENTITY IS THE CLOCK IDENTITY plus the port and domain — the same
         // `topic_seg` the retained tree is keyed on. The clock identity alone
@@ -341,18 +340,7 @@ fn flush(
                 clock.steps_removed.map(|s| s.to_string()).unwrap_or_else(dash)
             ))
             .status(DeviceRecordStatus::Identified);
-        match discovered.observe(&sighting, now_secs as i64 * 1_000) {
-            Ok(Some(publication)) => {
-                let _ = mqtt_client.publish(
-                    publication.topic,
-                    rumqttc::QoS::AtLeastOnce,
-                    true,
-                    publication.payload.into_bytes(),
-                );
-            }
-            Ok(None) => {}
-            Err(e) => eprintln!("   ⚠️  [PTP] {clock_id} not published as a DeviceRecord: {e}"),
-        }
+        apk_plugin_runner::presence::seen(&sighting, Some(&prefix));
 
         for (key, value) in CLOCK_KEYS.iter().zip(values) {
             let topic = format!("{prefix}/{key}");
@@ -383,22 +371,17 @@ fn flush(
 
     for seg in stale {
         println!("   ⌛ [PTP] {seg} stopped announcing — clearing");
-        // The DeviceRecord too. `topic_seg` IS the serial, so the id follows
-        // from the stale segment; the register remembers the rest.
-        if let Some(publication) = discovered.retract_id(&format!("ptp:{seg}")) {
-            let _ = mqtt_client.publish(
-                publication.topic,
-                rumqttc::QoS::AtLeastOnce,
-                true,
-                Vec::new(),
-            );
-        }
+        // Presence too: inactive since now. `topic_seg` IS the serial, so the
+        // id follows from the stale segment.
+        apk_plugin_runner::presence::gone(&format!("ptp:{seg}"));
         let prefix = format!("APK.audio/System/Protocols/ptp/Device/{seg}");
         for key in CLOCK_KEYS {
             let topic = format!("{prefix}/{key}");
             let _ = mqtt_client.publish(topic.clone(), rumqttc::QoS::AtLeastOnce, true, Vec::new());
             published.remove(&topic);
         }
+        // And the row's link to its presence, which is not one of CLOCK_KEYS.
+        apk_plugin_runner::presence::unlink(&prefix);
     }
 
     table.clocks.retain(|_, c| now.saturating_duration_since(c.last_seen) <= CLOCK_TIMEOUT);
