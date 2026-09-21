@@ -1,16 +1,34 @@
 // Part of the APK.audio project — http://APK.audio — made by Anthony Kuzub
 // MIT Licence. Free, for everyone, for ever. Full text in LICENSE at the root.
-//! The MQTT agent: publish discovered clocks as retained topics.
+//! The MQTT agent: publish discovered clocks as a live stream that is never kept.
 //!
-//! Publishing policy differs from every other discovery agent here, and for a
-//! reason worth stating: PTP is *continuous, high-rate* traffic. gPTP Sync runs
-//! at 8 messages a second per port by default, and a device announcing itself
-//! over mDNS does so every few minutes. Republishing a retained topic per Sync
-//! would put thousands of writes a minute on the bus to say nothing new.
+//! NOTHING THIS AGENT PUBLISHES IS KEPT. Every publish goes out at QoS 0 with
+//! the retain flag clear — the one combination MQTT offers that the broker
+//! neither stores on the topic, nor queues for an absent subscriber, nor
+//! writes to its persistence file. A PTP fact is true only while a clock is on
+//! the wire saying so; a retained copy of it keeps answering long after the
+//! clock has been unplugged, and that answer is a lie the bus cannot correct
+//! because the agent that would correct it is gone too.
 //!
-//! So the agent publishes on **state change and on a slow heartbeat**, not per
-//! packet. The live packet-by-packet view is the `ptp-monitor` binary's job —
-//! that is a tool you watch, not a state store.
+//! That choice has a price, and this module pays it deliberately: an unkept
+//! message nobody heard is simply gone, so **everything is republished on
+//! every heartbeat**, not only what changed. Publishing just the delta is
+//! correct when the broker holds the last value and wrong when it does not —
+//! it would announce a stable clock once and leave it invisible to every
+//! subscriber that connected afterwards. So the whole picture goes out every
+//! HEARTBEAT and a subscriber is never more than that far behind. Consumers
+//! that used to read this tree while the agent was down now read nothing,
+//! which is the point.
+//!
+//! Still not per packet. gPTP Sync runs at 8 messages a second per port by
+//! default, and one heartbeat costs a single sweep of the clock table however
+//! many packets landed in between. The live packet-by-packet view remains the
+//! `ptp-monitor` binary's job — a tool you watch, not a state store.
+//!
+//! Two things are deliberately NOT covered by this policy, because neither
+//! belongs to this crate: the presence document at `Discovery/ptp/{id}` and
+//! the `config.ini` publication, both owned by `apk_plugin_runner` and shared
+//! with every other plugin. Those stay retained.
 
 use crate::diagnostics::{Diagnostics, Totals};
 use crate::flow::FlowTracker;
@@ -54,12 +72,11 @@ pub const CLOCK_KEYS: [&str; 22] = [
     "two_step",
     "subdomain",
     "messages",
-    // A VERDICT, not a measurement, and that is the whole reason it may be
-    // retained. Jitter, offset and drift move every heartbeat; publishing them
-    // here would rewrite five retained topics per clock per 30 seconds to say
-    // very nearly the same thing, which is the bus noise the publishing policy
-    // at the top of this file exists to refuse. The numbers behind this word
-    // are in `ptp-monitor --json`, which is a document a reader asks for.
+    // A VERDICT, not a measurement. Jitter, offset and drift move every
+    // heartbeat and would say very nearly the same thing five topics at a
+    // time; one word that changes only when the health does carries the
+    // finding without the noise. The numbers behind the word are in
+    // `ptp-monitor --json`, which is a document a reader asks for.
     "sync_health",
     "status",
     // `-1` while the clock is announcing — see `apkaudio_contracts::presence`.
@@ -67,8 +84,18 @@ pub const CLOCK_KEYS: [&str; 22] = [
     "online_since",
 ];
 
-/// How often to refresh retained topics even when nothing changed.
+/// How often the whole picture is republished. Nothing is retained, so this
+/// is not a refresh of a stored value — it is the only time a value exists.
 const HEARTBEAT: Duration = Duration::from_secs(30);
+
+/// Every publish this agent makes: at most once, never retained, never stored.
+///
+/// One helper rather than the flag pair repeated at eleven call sites, so
+/// "unkept" is a property of the agent that cannot be half-applied by a future
+/// edit that forgets one argument.
+fn say(mqtt_client: &rumqttc::Client, topic: impl Into<String>, payload: impl Into<Vec<u8>>) {
+    let _ = mqtt_client.publish(topic.into(), rumqttc::QoS::AtMostOnce, false, payload.into());
+}
 
 /// The same cadence as `HEARTBEAT`, declared in every `AgentCounters` payload
 /// so a consumer can tell a missing sample from an idle agent. Derived from
@@ -143,7 +170,10 @@ pub fn run_listen_agent(mqtt_host: &str, mqtt_port: u16) {
     // is really "is it up on the interface I care about".
     let account = account.map(|a| a.on(transports.interfaces.iter().map(|(name, ..)| name)));
     println!("🔎 [PTP] {}: {detail}", account.as_ref().map(|a| a.state().as_str()).unwrap_or("?"));
-    report(&mqtt_client, account);
+    // Kept in hand, not just sent: unretained, this account is true for one
+    // heartbeat at a time and has to be restated for as long as it holds.
+    let state_publications = publications_of(account);
+    restate(&mqtt_client, &state_publications);
 
     // Started once per run: it owns a cache and one worker thread, and every
     // clock on a bench tends to come from a handful of manufacturers, so this
@@ -156,11 +186,16 @@ pub fn run_listen_agent(mqtt_host: &str, mqtt_port: u16) {
     // The totals as of the last sample, so the growth can be published rather
     // than the total: `Sampler` counters are monotonic and take increments.
     let mut reported = Totals::default();
-    let mut published: std::collections::HashMap<String, String> = Default::default();
+    // When each clock's current spell of announcing began, keyed by the topic
+    // segment. This used to be read back out of the published-value map; with
+    // nothing retained there is no such map, and an arrival stamp is the one
+    // thing a clock cannot restate for itself on every heartbeat.
+    let mut spells: std::collections::HashMap<String, u64> = Default::default();
     // The clocks as one presence document each (PLAN-3318.01), through
-    // `apk_plugin_runner::presence`. The twenty-two retained attributes stay
-    // where they are: they live under `System/Protocols/…`, which `element.rs`
-    // treats as an agent root.
+    // `apk_plugin_runner::presence` — the one retained thing left here, and
+    // deliberately so: presence is the runner's contract, shared with every
+    // other plugin, and it is what says a clock has gone rather than merely
+    // stopped being restated.
     // Start the clock in the past so the first flush lands at FIRST_FLUSH.
     let mut last_flush = Instant::now()
         .checked_sub(HEARTBEAT - FIRST_FLUSH)
@@ -222,10 +257,11 @@ pub fn run_listen_agent(mqtt_host: &str, mqtt_port: u16) {
                 // announces. Without this sweep the dead master stays elected
                 // and every clock under it keeps reporting itself healthy.
                 diagnostics.settle(last_flush);
-                flush(&mqtt_client, &mut table, &mut published, &vendors, &diagnostics);
+                flush(&mqtt_client, &mut table, &mut spells, &vendors, &diagnostics);
                 diagnostics.retain_ports(|key| table.clocks.contains_key(key));
                 count_faults(&mut counters, &mut reported, diagnostics.totals());
                 report_reception(&mqtt_client, &counters, !transports.udp.is_empty());
+                restate(&mqtt_client, &state_publications);
             }
         },
         || false,
@@ -236,7 +272,7 @@ pub fn run_listen_agent(mqtt_host: &str, mqtt_port: u16) {
 fn flush(
     mqtt_client: &rumqttc::Client,
     table: &mut ClockTable,
-    published: &mut std::collections::HashMap<String, String>,
+    spells: &mut std::collections::HashMap<String, u64>,
     vendors: &apkaudio_maclookup::MacVendors,
     diagnostics: &Diagnostics,
 ) {
@@ -257,15 +293,10 @@ fn flush(
         live.insert(topic_seg.clone());
         let prefix = format!("APK.audio/System/Protocols/ptp/Device/{topic_seg}");
 
-        // The arrival stamp is remembered in `published` itself rather than in
-        // a register beside it: that map is already the record of what this
-        // clock was last told to be, and the stale sweep below already empties
-        // it per topic — so a clock that goes away and comes back gets a NEW
-        // spell for free, and there is no second structure to keep in step.
-        let online_since = published
-            .get(&format!("{prefix}/online_since"))
-            .cloned()
-            .unwrap_or_else(|| now_secs.to_string());
+        // First heartbeat for this segment starts the spell; the stale sweep
+        // below drops the entry, so a clock that goes away and comes back gets
+        // a NEW spell rather than inheriting its old arrival time.
+        let online_since = *spells.entry(topic_seg.clone()).or_insert(now_secs);
 
         let quality = ClockQuality {
             class: clock.grandmaster_class.unwrap_or(0),
@@ -300,21 +331,13 @@ fn flush(
             diagnostics.verdict(&clock.key, clock.grandmaster).label().to_string(),
             "identified".to_string(),
             presence::ONLINE_NOW.to_string(),
-            online_since,
+            online_since.to_string(),
         ];
 
-        // Only write what changed. A clock's attributes are static for hours at
-        // a time; rewriting them every heartbeat is pure bus noise.
-        //
-        // `last_online` used to be exempt from that rule, because it carried
-        // `now` and the Discovered table read a row's colour off the stamp's
-        // age. Both presence fields are constants now — `-1` and the arrival
-        // stamp — so a clock that has not changed writes nothing at all, and
-        // the exception is gone with the thing that needed it.
         // The same clock as presence (PLAN-3318.01) — active since first heard.
         //
         // IDENTITY IS THE CLOCK IDENTITY plus the port and domain — the same
-        // `topic_seg` the retained tree is keyed on. The clock identity alone
+        // `topic_seg` the Device tree is keyed on. The clock identity alone
         // is not enough: a boundary clock presents several ports, and two
         // domains on one grandmaster are two different time references that a
         // controller must be able to tell apart. Collapsing them would put one
@@ -342,46 +365,37 @@ fn flush(
             .status(DeviceRecordStatus::Identified);
         apk_plugin_runner::presence::seen(&sighting, Some(&prefix));
 
+        // EVERY attribute, EVERY heartbeat. There is no dedupe here and there
+        // must not be one: skipping an unchanged value is free only while the
+        // broker is holding the last copy of it. Unretained, a skipped write
+        // is a value that no subscriber connecting later will ever see, and a
+        // clock whose attributes are static for hours — which is the normal
+        // case — would be published once and then vanish from the bus while
+        // still sitting on the wire.
         for (key, value) in CLOCK_KEYS.iter().zip(values) {
-            let topic = format!("{prefix}/{key}");
-            if published.get(&topic).is_some_and(|p| *p == value) {
-                continue;
-            }
-            let _ = mqtt_client.publish(
-                topic.clone(),
-                rumqttc::QoS::AtLeastOnce,
-                true,
-                value.clone().into_bytes(),
-            );
-            published.insert(topic, value);
+            say(mqtt_client, format!("{prefix}/{key}"), value.into_bytes());
         }
     }
 
-    // Clear clocks that stopped talking.
-    let stale: Vec<String> = published
+    // Clocks that stopped talking. There are no topics to clear — an unkept
+    // message erases itself by not being sent again, so the twenty-two empty
+    // retained payloads this used to publish per departed clock have nothing
+    // left to delete. What still needs saying is the presence document, which
+    // is retained and belongs to the runner, not to this policy.
+    let stale: Vec<String> = spells
         .keys()
-        .filter_map(|t| {
-            let seg = t.strip_prefix("APK.audio/System/Protocols/ptp/Device/")?;
-            let seg = seg.split('/').next()?;
-            (!live.contains(seg)).then(|| seg.to_string())
-        })
-        .collect::<std::collections::HashSet<_>>()
-        .into_iter()
+        .filter(|seg| !live.contains(*seg))
+        .cloned()
         .collect();
 
     for seg in stale {
-        println!("   ⌛ [PTP] {seg} stopped announcing — clearing");
-        // Presence too: inactive since now. `topic_seg` IS the serial, so the
-        // id follows from the stale segment.
+        println!("   ⌛ [PTP] {seg} stopped announcing — dropped");
+        // `topic_seg` IS the serial, so the id follows from the stale segment.
         apk_plugin_runner::presence::gone(&format!("ptp:{seg}"));
-        let prefix = format!("APK.audio/System/Protocols/ptp/Device/{seg}");
-        for key in CLOCK_KEYS {
-            let topic = format!("{prefix}/{key}");
-            let _ = mqtt_client.publish(topic.clone(), rumqttc::QoS::AtLeastOnce, true, Vec::new());
-            published.remove(&topic);
-        }
-        // And the row's link to its presence, which is not one of CLOCK_KEYS.
-        apk_plugin_runner::presence::unlink(&prefix);
+        apk_plugin_runner::presence::unlink(&format!(
+            "APK.audio/System/Protocols/ptp/Device/{seg}"
+        ));
+        spells.remove(&seg);
     }
 
     table.clocks.retain(|_, c| now.saturating_duration_since(c.last_seen) <= CLOCK_TIMEOUT);
@@ -408,30 +422,34 @@ fn count_faults(counters: &mut Sampler, reported: &mut Totals, now: Totals) {
 
 /// Publish what has actually been received, per transport.
 ///
-/// TWO TOPICS, AND THEY ARE DELIBERATELY SHAPED DIFFERENTLY
+/// The counts go out as `AgentCounters` on `System/Counters/apkaudio-ptp`.
+/// `startedAt` and `intervalMs` travel with them so a consumer can difference
+/// two samples into a rate and can tell a restart from a lost message. A count
+/// was never the kind of thing to retain anyway: a retained sample keeps
+/// answering after the process that measured it is dead.
 ///
-/// The counts go out as `AgentCounters` on `System/Counters/apkaudio-ptp`,
-/// NOT RETAINED: a count is a sample, and a retained sample keeps answering
-/// after this process is dead. `startedAt` and `intervalMs` travel with it so
-/// a consumer can difference two samples into a rate and can tell a restart
-/// from a lost message. Before PLAN-34.02 these were two retained scalars
-/// under `Agent/`, which no consumer read and which outlived the agent.
+/// `udp_blocked` is the conclusion, not the raw split — raw AF_PACKET capture
+/// sits below netfilter and UDP does not, so "L2 flowing, UDP zero" is a host
+/// firewall rather than an empty network, and four consumers read the verdict
+/// rather than re-deriving it (`launch.py`, `read-discovered-clocks.js`, the
+/// orchestrator's agent map and `interfaces_reporter.py`).
 ///
-/// `udp_blocked` stays a RETAINED scalar because it is not a count — it is a
-/// conclusion about this host's firewall that remains true while the agent is
-/// down, and four consumers already read it there (`launch.py`,
-/// `read-discovered-clocks.js`, the orchestrator's agent map, and
-/// `interfaces_reporter.py`). Publishing the conclusion rather than the raw
-/// numbers means none of them re-derives the netfilter reasoning.
+/// IT USED TO BE RETAINED, precisely so it stayed readable while this agent
+/// was down, and it is not any more: under the unkept policy at the top of
+/// this file a firewall verdict from a dead agent is exactly the stale answer
+/// the policy exists to refuse. It is restated every heartbeat instead, so
+/// those four consumers see it within one HEARTBEAT of subscribing and see
+/// nothing at all once the agent stops — which is the honest reading of "this
+/// host's firewall state is currently unknown".
 fn report_reception(
     mqtt_client: &rumqttc::Client,
     counters: &Sampler,
     udp_open: bool,
 ) {
     match counters.publication(unix_ms_now()) {
-        Ok((topic, payload, retain)) => {
-            let _ = mqtt_client.publish(topic, rumqttc::QoS::AtLeastOnce, retain, payload);
-        }
+        // The contract's own retain flag is ignored here, as everywhere in
+        // this agent: `say` is the only way out.
+        Ok((topic, payload, _retain)) => say(mqtt_client, topic, payload),
         // A malformed sample is a bug in this agent, not a reason to take the
         // capture loop down: say so once per flush and keep listening.
         Err(e) => eprintln!("⚠️  [PTP] counters not published: {e}"),
@@ -440,10 +458,9 @@ fn report_reception(
     let udp = counters.get("udpSeen");
     let l2 = counters.get("l2Seen");
     let blocked = udp_open && udp == 0 && l2 > 0;
-    let _ = mqtt_client.publish(
+    say(
+        mqtt_client,
         "APK.audio/System/Protocols/ptp/Agent/udp_blocked",
-        rumqttc::QoS::AtLeastOnce,
-        true,
         blocked.to_string().into_bytes(),
     );
 }
@@ -463,28 +480,83 @@ fn unix_ms_now() -> i64 {
 /// Same reasoning as the AVB agent: the orchestrator infers `online` from the
 /// presence of a `config.ini`, which cannot know that a capability is missing.
 ///
-/// The topics, the words and the retain flag are all `agent_state`'s now. This
-/// crate and `apkaudio-AVB-Milan` each held a private copy of them, which is a
+/// The topics and the words are `agent_state`'s. This crate and
+/// `apkaudio-AVB-Milan` each held a private copy of them, which is a
 /// convention rather than a contract — and a convention is what the third
 /// publisher disagrees with.
-fn report(mqtt_client: &rumqttc::Client, account: Result<AgentReport, TopicError>) {
-    let publications = account.and_then(|a| a.publications());
-    match publications {
-        Ok(entries) => {
-            for (topic, payload, retain) in entries {
-                let _ = mqtt_client.publish(topic, rumqttc::QoS::AtLeastOnce, retain, payload);
-            }
-        }
+///
+/// The retain flag is NOT `agent_state`'s here. It says to retain, which is
+/// right for an agent that announces its state once at startup and is wrong
+/// for this one: unkept, a single startup publish would be heard by whoever
+/// happened to be subscribed in that instant and by nobody else ever. So the
+/// entries are returned rather than sent, and the caller restates them on
+/// every heartbeat — see `restate`.
+fn publications_of(account: Result<AgentReport, TopicError>) -> Vec<(String, Vec<u8>)> {
+    match account.and_then(|a| a.publications()) {
+        Ok(entries) => entries
+            .into_iter()
+            .map(|(topic, payload, _retain)| (topic, payload))
+            .collect(),
         // A protocol name this agent controls cannot fail to be a segment, so
         // this is a bug here rather than a bus condition: say so and keep
         // capturing.
-        Err(e) => eprintln!("⚠️  [PTP] agent state not published: {e}"),
+        Err(e) => {
+            eprintln!("⚠️  [PTP] agent state not published: {e}");
+            Vec::new()
+        }
+    }
+}
+
+/// Send an agent-state account once.
+fn report(mqtt_client: &rumqttc::Client, account: Result<AgentReport, TopicError>) {
+    restate(mqtt_client, &publications_of(account));
+}
+
+/// Say the agent's state again. Cheap, and the only thing keeping it true:
+/// an unkept message is a statement with a shelf life of one heartbeat.
+fn restate(mqtt_client: &rumqttc::Client, entries: &[(String, Vec<u8>)]) {
+    for (topic, payload) in entries {
+        say(mqtt_client, topic.clone(), payload.clone());
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The unkept policy, enforced rather than merely documented.
+    ///
+    /// Every publish in this agent goes through `say`, which is the single
+    /// place the QoS and retain flags are chosen. Every OTHER agent in this
+    /// tree publishes retained at QoS 1, so reaching for the client directly
+    /// is the natural thing for a later edit to do — and one such call would
+    /// put a PTP fact back into the broker's store, where it keeps answering
+    /// after the thing it describes is off the network. That is the exact
+    /// failure this module exists to prevent, so it is checked at the source
+    /// rather than left to review.
+    ///
+    /// The needles are assembled at runtime: spelled out literally they would
+    /// appear in this test and match themselves.
+    #[test]
+    fn nothing_this_agent_publishes_is_kept() {
+        let source = include_str!("agent.rs");
+        let call = format!(".{}(", "publish");
+        assert_eq!(
+            source.matches(&call).count(),
+            1,
+            "every publish must go through say(); found a direct client call"
+        );
+
+        let unkept = format!("QoS::At{}Once, false", "Most");
+        assert!(source.contains(&unkept), "say() must publish QoS 0, not retained");
+
+        for kept in [format!("At{}Once", "Least"), format!("Exactly{}", "Once")] {
+            assert!(
+                !source.contains(&kept),
+                "{kept} would queue this agent's messages for absent subscribers"
+            );
+        }
+    }
 
     #[test]
     fn topic_segments_keep_clock_identities_readable() {
