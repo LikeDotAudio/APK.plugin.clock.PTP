@@ -1,7 +1,7 @@
-# APK:plugin:PTP — PTP v1 + v2 + gPTP listener, one container — the other holding NET_RAW.
-#     COMPOSE_PROFILES=l2 docker compose -f 'APK:PODS/POD:APK_THICK/APK:plugin:PTP/Docker/docker-compose.yml' up -d --build
+# APK:plugin:PTP — PTP v1 + v2 + gPTP listener, one container — one of the four holding NET_RAW.
+#     COMPOSE_PROFILES=l2 docker compose -f 'PODS/POD:THICK/plugin/plugin:PTP/Docker/docker-compose.yml' up -d --build
 # Normally started with the other plugins, by node role (see discovery):
-#     COMPOSE_PROFILES=discovery,l2 docker compose -f 'APK:PODS/POD:APK_THICK/discovery/Docker/docker-compose.yml' up -d
+#     COMPOSE_PROFILES=discovery,l2 docker compose -f 'PODS/POD:THICK/discovery/Docker/docker-compose.yml' up -d
 # The image, the capability floor, the broker variables and the healthcheck are
 # the base service in discovery/Docker/plugin-base.yml; this file says
 # only what is THIS plugin's. No bind mounts, so no `bind:` sub-key to carry.
@@ -17,7 +17,7 @@ services:
     container_name: Plugin-PTP
     command: ["apk-ptp"]
     profiles: [l2]
-    # THE OTHER PLUGIN HOLDING A RAW CAPABILITY: gPTP over raw Ethernet, and
+    # A RAW CAPABILITY, FOR gPTP over raw Ethernet (AF_PACKET), and
     # PTPv1/v2 on UDP 319/320, below 1024. Without NET_BIND_SERVICE the agent
     # reports `partial` — it still hears gPTP, and every UDP clock is invisible.
     cap_add: [NET_RAW, NET_BIND_SERVICE]

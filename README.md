@@ -1,6 +1,6 @@
 # APK:plugin:PTP
 
-PTP v1 + v2 + gPTP listener, one container — the other holding NET_RAW.
+PTP v1 + v2 + gPTP listener, one container — one of the four holding NET_RAW (with MILAN, PING and the discovery engine).
 
 | | |
 |---|---|
