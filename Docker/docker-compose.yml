@@ -1,4 +1,4 @@
-# APK:plugin:PTP — PTP v1 + v2 + gPTP listener, one container — one of the four holding NET_RAW.
+# PLUGIN:PTP — PTP v1 + v2 + gPTP listener, one container — one of the four holding NET_RAW.
 #     COMPOSE_PROFILES=l2 docker compose -f 'PODS/POD:THICK/plugin/PLUGIN:PTP/Docker/docker-compose.yml' up -d --build
 # Normally started with the other plugins, by node role (see discovery):
 #     COMPOSE_PROFILES=discovery,l2 docker compose -f 'PODS/POD:THICK/discovery/Docker/docker-compose.yml' up -d
