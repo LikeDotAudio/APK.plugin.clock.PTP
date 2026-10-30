@@ -19,6 +19,14 @@ services:
       file: "../../../DISCOVERY.Engine/Docker/plugin-base.yml"
       service: plugin-host
     container_name: Plugin-PTP
+    # WHAT THIS IS, said by the container itself (PLAN-3409.01): DockTor reads
+    # these with docker inspect, so its purpose and endpoint panes keep no list.
+    labels:
+      audio.apk.purpose: "PTP v1, v2 and gPTP listener"
+      audio.apk.purpose.what: "apk-ptp on host networking with NET_RAW and NET_BIND_SERVICE, listening to PTP on 319/320 and gPTP at Layer 2, and publishing the clocks and grandmaster it hears."
+      audio.apk.purpose.why: "Every AES67, Dante and AVB stream depends on a shared clock. This is how the bench sees who is grandmaster and which domain each device follows; it is the other of the two raw-capability containers."
+      audio.apk.endpoint.1: "copy udp://127.0.0.1:319 PTP event socket"
+      audio.apk.endpoint.2: "copy udp://127.0.0.1:320 PTP general socket"
     command: ["apk-ptp"]
     profiles: [l2]
     # A RAW CAPABILITY, FOR gPTP over raw Ethernet (AF_PACKET), and
