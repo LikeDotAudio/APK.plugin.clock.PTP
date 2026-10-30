@@ -1,16 +1,44 @@
 # APK:plugin:PTP
 
-PTP v1 + v2 + gPTP listener, one container — one of the four holding NET_RAW (with MILAN, PING and the discovery engine).
+PTP v1 + v2 + gPTP listener, one container — and `ptp-monitor`, the hand tool beside it.
 
 | | |
 |---|---|
-| **Recipe** | `Docker/docker-compose.yml` — no Dockerfile: it runs a binary from the shared plugin image built by `APK:discovery` |
-| **Source** | `SRC/` (this repository — https://github.com/LikeDotAudio/APK.plugin.clock.PTP.git) — bin `apk-ptp`; `ptp-monitor` is the hand tool beside it; built by the shared plugin image |
+| **Recipe** | `Docker/docker-compose.yml` — no Dockerfile: it runs a binary from the shared plugin image built by `PODS/POD.THICK/DISCOVERY.Engine/Docker/Dockerfile`, extending `plugin-host` in `DISCOVERY.Engine/Docker/plugin-base.yml` |
+| **Source** | `SRC/` (this repository — https://github.com/LikeDotAudio/APK.plugin.clock.PTP.git) — crate `apkaudio-ptp`, a member of the `DISCOVERY.Engine/SRC` workspace; bins `apk-ptp` (the agent, `apk_plugin_runner::main!(token = "ptp", run = [run_listen_agent])`) and `ptp-monitor` (the hand tool) |
+| **Container** | `Plugin-PTP`, command `apk-ptp` |
 | **Profile** | `l2` |
-| **Talks to** | the broker only |
+| **Network** | host |
+| **Capability** | `NET_RAW` (gPTP over raw Ethernet, AF_PACKET, EtherType 0x88F7) and `NET_BIND_SERVICE` (UDP 319/320) — `cap_add` in compose plus the file capabilities in the Dockerfile. Without the second the agent reports `partial`: gPTP is still heard, UDP clocks are not |
+| **Talks to** | the broker only — it listens to PTP and sends none |
+| **Bus token** | `ptp` |
 | **Publishing** | **nothing is kept** — every topic at QoS 0, retain clear; the whole picture restated every 30s |
 
 Was a thread in `workers/discovery.rs`. Moved into its own container by PLAN-3316.01.
+
+## What it does
+
+Listens on UDP 319/320 and raw Ethernet at once (`src/net.rs`), decodes PTPv1
+(`src/v1.rs`), PTPv2 and gPTP (`src/message.rs`), pairs messages into the
+exchanges they form — Sync ↔ Follow_Up, Delay_Req ↔ Delay_Resp, the peer-delay
+chain (`src/flow.rs`) — and reads three diagnostics: offset from master,
+arrival jitter and BMCA election (`src/diagnostics/`). The clock table
+(`src/monitor.rs`) is flushed to the bus 10 s after start and then every 30 s
+(`src/agent.rs`); a clock not heard for 30 s (`CLOCK_TIMEOUT`) is dropped and
+its presence goes inactive.
+
+```
+APK.audio/System/Protocols/ptp/Device/{clock_id}-{port}-d{domain}/{key}   ← QoS 0, retain clear
+  key ∈ clock_id vendor port variant domain role grandmaster gm_class gm_class_meaning
+        gm_accuracy time_source steps_removed priority1 priority2 sync_interval_s
+        two_step subdomain messages sync_health status last_online online_since
+APK.audio/System/Protocols/ptp/Agent/udp_blocked                          ← QoS 0, retain clear
+APK.audio/System/Counters/apkaudio-ptp                                    ← AgentCounters, QoS 0
+```
+
+`sync_health` is a verdict word (`jittery`, …), not the numbers; the numbers
+are in `ptp-monitor --json`. `vendor` is the OUI inside the clock identity,
+through `LIB.MAC_LOOKUP`.
 
 ## Nothing this agent publishes is kept
 
@@ -36,9 +64,11 @@ What this means for readers:
 | While the agent is down | the PTP tree is **empty**, including `Agent/udp_blocked` |
 
 `Agent/udp_blocked` used to be retained precisely so it stayed readable while
-this agent was down. It is restated every heartbeat instead, so its four readers
-(`launch.py`, `read-discovered-clocks.js`, the orchestrator's agent map,
-`interfaces_reporter.py`) see it within a heartbeat and see nothing once the
+this agent was down. It is restated every heartbeat instead, so its readers
+(`WEB.Frontend-Assets/SRC/launcher/launch.py` and `launch_host_tools.py`,
+`OS/Clock/discovered-clocks/read-discovered-clocks.js`,
+`NODE.BareMetal/SRC/Core/ORCHESTRATOR:hunter:VISA/src/discovered/`,
+`Baremetal:Manager/interfaces_report.py`) see it within a heartbeat and see nothing once the
 agent stops — the honest reading of "this host's firewall state is unknown".
 
 Two things stay retained, because neither belongs to this crate: the presence
@@ -48,6 +78,64 @@ has *gone* rather than merely stopped being restated.
 
 `agent.rs::nothing_this_agent_publishes_is_kept` enforces this at the source: one
 publish call in the crate, and it is `say`.
+
+## `ptp-monitor`
+
+The live, packet-by-packet view of the same capture — a tool you watch, not a
+state store (`src/bin/ptp-monitor.rs`). It needs the same two capabilities
+(`sudo`, or `setcap cap_net_raw,cap_net_bind_service+eip ptp-monitor`).
+
+```sh
+ptp-monitor                     # live tail, each message linked to its partner
+ptp-monitor --summary           # clock table, refreshed
+ptp-monitor --seconds 30        # stop after 30 s and print the summary
+ptp-monitor --domain 0          # one domain only
+ptp-monitor --json --seconds 6  # one JSON object on stdout (report::snapshot_json), human lines on stderr
+```
+
+## Configuration
+
+`SRC/config.ini`, `[ptp]`: `enabled`, `topic = APK.audio/System/Protocols/ptp`
+(read by the runner as the module topic), `domain = 0` (read by nothing), and
+the presence pair — `presence_protocols = ptp`, `presence_inactive_after_s = 90`
+(3 × the flush). The broker is `MQTT_HOST` / `MQTT_PORT` from the runner, which
+publishes the retained config at `APK.audio/System/Protocols/ptp/config` and
+runs the self test (`src/self_test.rs`). `SRC/gui/manifest.json` and
+`SRC/gui/ptp/ptp.json` are the clock console panel. The `python` feature builds
+the legacy pyo3 `clock` and `parser` shims; nothing above depends on them.
+
+## Build, run, test
+
+```sh
+# from PODS/POD.THICK/DISCOVERY.Engine/SRC
+cargo test -p apkaudio-ptp                       # 90 tests (2026-10-30)
+cargo check -p apkaudio-ptp --features python    # compiles (2026-10-30)
+cargo build -p apkaudio-ptp --bin ptp-monitor
+
+COMPOSE_PROFILES=l2 docker compose -f PODS/POD.THICK/PLUGINS/PLUGIN.PTP/Docker/docker-compose.yml up -d --build
+```
+
+`apk-ptp` takes no arguments — `--help` starts the agent against the broker.
+
+## Philosophy
+
+- **A clock fact is true only while the clock says it.** Nothing kept, the
+  whole picture restated, presence the one retained witness of departure
+  (`src/agent.rs` header, `say`, `nothing_this_agent_publishes_is_kept`).
+- **Unreachable is dead.** A clock silent for 30 s leaves the table and its
+  presence goes inactive (`CLOCK_TIMEOUT`, `src/agent.rs`).
+- **A verdict, not a firehose.** `sync_health` is one word that changes when the
+  health does; the numbers are a document you ask `ptp-monitor --json` for
+  (`CLOCK_KEYS`).
+- **Say the partial truth as partial.** Missing a transport is `partial` with
+  the reason, not silence and not a crash (`src/net.rs`, `AgentReport::partial`
+  in `src/agent.rs`).
+- **Conclusions travel, not raw splits.** `udp_blocked` is the firewall verdict
+  (L2 flowing, UDP zero) so readers do not re-derive it (`report_reception`).
+- **Identity is never decorated.** `vendor` is its own key so `clock_id` stays
+  the topic segment and the grandmaster match (`CLOCK_KEYS`).
+- **Least privilege, named.** Two capabilities, each for a stated transport
+  (compose, Dockerfile).
 
 ---
 
