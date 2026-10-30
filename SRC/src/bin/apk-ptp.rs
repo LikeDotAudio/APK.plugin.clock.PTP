@@ -5,4 +5,13 @@
 //! The other binary in the plugin image with file capabilities: NET_RAW for gPTP over raw
 //! Ethernet and NET_BIND_SERVICE for UDP 319/320. `ptp-monitor` beside it is the hand tool.
 
-apk_plugin_runner::main!(token = "ptp", lib = apkaudio_ptp, run = [run_listen_agent]);
+//!
+//! `panels = [ptp]`: every clock presents its own panel, retained at
+//! `APK.audio/System/Gui/Panels/ptp-<clock>` (`device_depth: 1`).
+
+apk_plugin_runner::main!(
+    token = "ptp",
+    lib = apkaudio_ptp,
+    run = [run_listen_agent],
+    panels = [ptp]
+);

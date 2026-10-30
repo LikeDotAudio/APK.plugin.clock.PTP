@@ -103,7 +103,7 @@ the presence pair — `presence_protocols = ptp`, `presence_inactive_after_s = 9
 (3 × the flush). The broker is `MQTT_HOST` / `MQTT_PORT` from the runner, which
 publishes the retained config at `APK.audio/System/Protocols/ptp/config` and
 runs the self test (`src/self_test.rs`). `SRC/gui/manifest.json` and
-`SRC/gui/ptp/ptp.json` are the clock console panel. The `python` feature builds
+`SRC/gui/ptp/ptp.json` are the clock console panel. Each clock presents its own panel (PLAN-3413.01): `apk-ptp.rs` names `panels = [ptp]`, so apk-plugin-runner binds the template to every clock under `…/ptp/Device/<clock>` (`device_depth: 1`) and keeps it retained at `APK.audio/System/Gui/Panels/ptp-<clock>`, emptied when `last_online` says offline or after `panels_expire_after_s` (120 s) of silence. The "Online since" field reads `online_since`. The `python` feature builds
 the legacy pyo3 `clock` and `parser` shims; nothing above depends on them.
 
 ## Build, run, test

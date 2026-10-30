@@ -6,6 +6,7 @@
   },
   "ptp": {
     "tab": "6_PTP",
-    "tree": "7_Device_Consoles"
+    "tree": "7_Device_Consoles",
+    "device_depth": 1
   }
 }
