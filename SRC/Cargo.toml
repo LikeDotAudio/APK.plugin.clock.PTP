@@ -1,16 +1,14 @@
 [package]
 name = "apkaudio-ptp"
 version = "0.1.0"
-edition.workspace = true
-workspace = "../../../DISCOVERY.Engine/SRC"
-
+edition = "2024"
 # PTP spans two transports: UDP (privileged ports 319/320) and raw Ethernet
 # (EtherType 0x88F7 for gPTP). libc is needed directly for AF_PACKET, which std
 # does not expose; socket2 for SO_REUSEPORT on the shared UDP ports.
 [dependencies]
 # The container entry point in src/bin/apk-ptp.rs (PLAN-3316.01).
-apk-plugin-runner = { path = "../../../DISCOVERY.Engine/SRC/RUNNER" }
-apkaudio-contracts = { path = "../../../NODE.BareMetal/SRC/contracts/rust" }
+apk-plugin-runner = { git = "https://github.com/LikeDotAudio/APK.plugin.SDK", tag = "sdk-v0.1" }
+apkaudio-contracts = { git = "https://github.com/LikeDotAudio/APK.plugin.SDK", tag = "sdk-v0.1" }
 libc = "0.2"
 socket2 = "0.6"
 rumqttc = "0.24"
@@ -18,7 +16,7 @@ rumqttc = "0.24"
 # A clock identity is a MAC with FF:FE inserted, so the OUI in it names the
 # manufacturer. Non-blocking by contract — see the crate docs; this agent
 # resolves from a capture thread.
-apkaudio-maclookup = { path = "../../../LIBRARY/LIB.MAC_LOOKUP/SRC" }
+apkaudio-maclookup = { git = "https://github.com/LikeDotAudio/APK.plugin.protocol.MAC_LOOKUP", rev = "7ba39dd001fea80828ac310280fc3b4b5c180cb3" }
 
 parking_lot = { version = "0.12", optional = true }
 pyo3 = { version = "0.21.2", optional = true }
