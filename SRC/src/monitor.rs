@@ -82,7 +82,12 @@ impl Transports {
             }
         };
 
-        Self { udp, l2, interfaces, problems }
+        Self {
+            udp,
+            l2,
+            interfaces,
+            problems,
+        }
     }
 
     pub fn any_open(&self) -> bool {
@@ -120,7 +125,10 @@ pub fn classify(
     if v1::is_v1(&cap.payload) {
         return match v1::parse(&cap.payload) {
             Ok(m) => Observation::V1(Box::new(m), meta),
-            Err(e) => Observation::Undecodable { reason: format!("PTPv1: {e:?}"), meta },
+            Err(e) => Observation::Undecodable {
+                reason: format!("PTPv1: {e:?}"),
+                meta,
+            },
         };
     }
 
@@ -129,7 +137,10 @@ pub fn classify(
             let correlation = tracker.observe(&m, at);
             Observation::V2(Box::new(m), correlation, meta)
         }
-        Err(e) => Observation::Undecodable { reason: format!("{e:?}"), meta },
+        Err(e) => Observation::Undecodable {
+            reason: format!("{e:?}"),
+            meta,
+        },
     }
 }
 
@@ -160,8 +171,12 @@ where
 /// every PTP packet has stopped. Work driven only by `Some` stops with the
 /// traffic — and "all traffic stopped" is exactly when a silent grandmaster
 /// has to be retired (LOOSE-plugin-ptp-in-agentrs-the).
-pub fn run_paced<F, S>(transports: &Transports, tracker: &mut FlowTracker, mut on: F, should_stop: S)
-where
+pub fn run_paced<F, S>(
+    transports: &Transports,
+    tracker: &mut FlowTracker,
+    mut on: F,
+    should_stop: S,
+) where
     F: FnMut(Option<Observation>),
     S: Fn() -> bool,
 {
@@ -174,14 +189,24 @@ where
         for sock in &transports.udp {
             if let Ok(Some(cap)) = sock.recv(&mut buf) {
                 idle = false;
-                on(Some(classify(&cap, tracker, Instant::now(), SystemTime::now())));
+                on(Some(classify(
+                    &cap,
+                    tracker,
+                    Instant::now(),
+                    SystemTime::now(),
+                )));
             }
         }
 
         if let Some(l2) = &transports.l2 {
             if let Ok(Some(cap)) = l2.recv(&mut buf, &name_of) {
                 idle = false;
-                on(Some(classify(&cap, tracker, Instant::now(), SystemTime::now())));
+                on(Some(classify(
+                    &cap,
+                    tracker,
+                    Instant::now(),
+                    SystemTime::now(),
+                )));
             }
         }
 
@@ -264,7 +289,11 @@ impl ClockRecord {
     pub fn message_summary(&self) -> String {
         let mut counts: Vec<(&&str, &u64)> = self.message_counts.iter().collect();
         counts.sort_by(|a, b| b.1.cmp(a.1).then(a.0.cmp(b.0)));
-        counts.iter().map(|(k, v)| format!("{k} ×{v}")).collect::<Vec<_>>().join(", ")
+        counts
+            .iter()
+            .map(|(k, v)| format!("{k} ×{v}"))
+            .collect::<Vec<_>>()
+            .join(", ")
     }
 }
 
@@ -277,13 +306,19 @@ pub struct ClockTable {
 impl ClockTable {
     pub fn record(&mut self, msg: &PtpMessage, meta: &Meta) -> &ClockRecord {
         let key = PortKey::of(msg);
-        let entry = self.clocks.entry(key).or_insert_with(|| ClockRecord::new(key, meta));
+        let entry = self
+            .clocks
+            .entry(key)
+            .or_insert_with(|| ClockRecord::new(key, meta));
         entry.last_seen = meta.at;
         entry.source = meta.source.clone();
         if meta.interface != "udp" {
             entry.interface = meta.interface.clone();
         }
-        *entry.message_counts.entry(msg.message_type.label()).or_insert(0) += 1;
+        *entry
+            .message_counts
+            .entry(msg.message_type.label())
+            .or_insert(0) += 1;
 
         match msg.message_type {
             message::MessageType::Sync => {
@@ -324,11 +359,17 @@ impl ClockTable {
             domain: v1::subdomain_as_domain(&msg.subdomain),
             variant: Variant::V1,
         };
-        let entry = self.clocks.entry(key).or_insert_with(|| ClockRecord::new(key, meta));
+        let entry = self
+            .clocks
+            .entry(key)
+            .or_insert_with(|| ClockRecord::new(key, meta));
         entry.last_seen = meta.at;
         entry.source = meta.source.clone();
         entry.subdomain = Some(msg.subdomain.clone());
-        *entry.message_counts.entry(msg.message_type.label()).or_insert(0) += 1;
+        *entry
+            .message_counts
+            .entry(msg.message_type.label())
+            .or_insert(0) += 1;
         &self.clocks[&key]
     }
 
@@ -408,7 +449,11 @@ mod tests {
         // gPTP — the variant is part of the key, which is what keeps a gPTP
         // clock and an L2 PTPv2 clock in domain 0 from being merged.
         let gms = &by_domain[&(0, Variant::Gptp)];
-        assert_eq!(gms.len(), 2, "both grandmasters must be reported, not merged");
+        assert_eq!(
+            gms.len(),
+            2,
+            "both grandmasters must be reported, not merged"
+        );
     }
 
     /// The same clock in two domains is two records, not one overwritten.
@@ -477,7 +522,12 @@ mod tests {
     fn a_pass_with_no_packets_still_pulses() {
         // No transport at all: nothing can arrive, and the pulse must still
         // come, once per pass, or a heartbeat hung off it dies with the traffic.
-        let transports = Transports { udp: vec![], l2: None, interfaces: vec![], problems: vec![] };
+        let transports = Transports {
+            udp: vec![],
+            l2: None,
+            interfaces: vec![],
+            problems: vec![],
+        };
         let mut tracker = FlowTracker::default();
         let passes = std::cell::Cell::new(0);
         let (mut pulses, mut observations) = (0, 0);

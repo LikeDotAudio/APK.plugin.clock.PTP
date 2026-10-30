@@ -9,7 +9,7 @@ How to use it, and how it works inside. Every topic key and every `ptp-monitor` 
 
 ```sh
 # from PODS/POD.THICK/DISCOVERY.Engine/SRC (the cargo workspace)
-cargo test -p apkaudio-ptp
+cargo test -p apkaudio-ptp          # tests/fmt.rs fails the suite when the crate is not rustfmt-clean
 cargo build -p apkaudio-ptp --bin ptp-monitor
 sudo target/debug/ptp-monitor --summary --seconds 30     # the live view, by hand
 COMPOSE_PROFILES=l2 docker compose -f PODS/POD.THICK/PLUGINS/PLUGIN.PTP/Docker/docker-compose.yml up -d --build

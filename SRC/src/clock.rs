@@ -4,13 +4,13 @@
 // Author: Anthony Peter Kuzub (via Gemini)
 // Version: 20260413.1400.1
 //
-// Description: Native PTP clock synchronization interface. Manages 
-// nanosecond-precision hardware and software timestamps for 
+// Description: Native PTP clock synchronization interface. Manages
+// nanosecond-precision hardware and software timestamps for
 // chronologically aligned media events.
 
+use parking_lot::RwLock;
 use pyo3::prelude::*;
 use std::sync::Arc;
-use parking_lot::RwLock;
 use std::thread;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -42,29 +42,29 @@ impl PtpEngine {
             return Ok(());
         }
         *running = true;
-        
+
         let current_nanos = self.current_nanos.clone();
         let running_clone = self.running.clone();
-        
+
         thread::spawn(move || {
-            // In a real implementation, this would use SO_TIMESTAMPING 
+            // In a real implementation, this would use SO_TIMESTAMPING
             // and listen on the PTP multicast address (e.g., 224.0.1.129).
             // For this project context, we'll simulate nanosecond tracking.
             // Using constant PTP_MULTICAST_ADDRESS for future binding.
-            
+
             while *running_clone.read() {
                 let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
                 let nanos = now.as_nanos() as u64;
-                
+
                 {
                     let mut current = current_nanos.write();
                     *current = nanos;
                 }
-                
+
                 thread::sleep(std::time::Duration::from_millis(1));
             }
         });
-        
+
         Ok(())
     }
 

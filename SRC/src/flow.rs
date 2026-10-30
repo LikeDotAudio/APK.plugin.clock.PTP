@@ -111,7 +111,10 @@ impl Default for FlowTracker {
 
 impl FlowTracker {
     pub fn new(timeout: Duration) -> Self {
-        Self { pending: HashMap::new(), timeout }
+        Self {
+            pending: HashMap::new(),
+            timeout,
+        }
     }
 
     /// Feed one message. Returns the exchange it completed, if any.
@@ -147,18 +150,25 @@ impl FlowTracker {
             }
             MessageType::PdelayResp => {
                 let key = PortKey::of_requester(msg)?;
-                let done =
-                    self.complete(key, MessageType::PdelayReq, msg.sequence_id, now);
+                let done = self.complete(key, MessageType::PdelayReq, msg.sequence_id, now);
                 // The responder may still send a Pdelay_Resp_Follow_Up; record
                 // this response so that third leg can be matched too.
                 if msg.is_two_step() {
-                    self.remember_as(PortKey::of(msg), MessageType::PdelayResp, msg.sequence_id, now);
+                    self.remember_as(
+                        PortKey::of(msg),
+                        MessageType::PdelayResp,
+                        msg.sequence_id,
+                        now,
+                    );
                 }
                 done
             }
-            MessageType::PdelayRespFollowUp => {
-                self.complete(PortKey::of(msg), MessageType::PdelayResp, msg.sequence_id, now)
-            }
+            MessageType::PdelayRespFollowUp => self.complete(
+                PortKey::of(msg),
+                MessageType::PdelayResp,
+                msg.sequence_id,
+                now,
+            ),
 
             _ => None,
         }
@@ -169,7 +179,13 @@ impl FlowTracker {
     }
 
     fn remember_as(&mut self, key: PortKey, mt: MessageType, seq: u16, now: Instant) {
-        self.pending.insert((key, mt, seq), Pending { seen_at: now, message_type: mt });
+        self.pending.insert(
+            (key, mt, seq),
+            Pending {
+                seen_at: now,
+                message_type: mt,
+            },
+        );
     }
 
     fn complete(
@@ -189,7 +205,8 @@ impl FlowTracker {
 
     fn expire(&mut self, now: Instant) {
         let timeout = self.timeout;
-        self.pending.retain(|_, p| now.saturating_duration_since(p.seen_at) < timeout);
+        self.pending
+            .retain(|_, p| now.saturating_duration_since(p.seen_at) < timeout);
     }
 
     /// How many exchanges are currently unanswered.
@@ -201,7 +218,7 @@ impl FlowTracker {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::message::{parse, Variant};
+    use crate::message::{Variant, parse};
 
     const GM: [u8; 8] = [0x00, 0x0A, 0x92, 0xFF, 0xFE, 0x01, 0x56, 0xA3];
     const OTHER: [u8; 8] = [0xAA, 0xBB, 0xCC, 0xFF, 0xFE, 0x00, 0x00, 0x01];
@@ -235,7 +252,9 @@ mod tests {
         assert!(t.observe(&msg(0x0, 4521, GM, true, 0), now).is_none());
 
         let later = now + Duration::from_millis(3);
-        let c = t.observe(&msg(0x8, 4521, GM, true, 0), later).expect("correlated");
+        let c = t
+            .observe(&msg(0x8, 4521, GM, true, 0), later)
+            .expect("correlated");
         assert_eq!(c.responds_to, MessageType::Sync);
         assert_eq!(c.sequence_id, 4521);
         assert_eq!(c.observed_gap, Duration::from_millis(3));
@@ -275,7 +294,10 @@ mod tests {
     #[test]
     fn one_step_sync_is_not_left_pending() {
         let mut t = FlowTracker::default();
-        assert!(t.observe(&msg(0x0, 1, GM, false, 0), Instant::now()).is_none());
+        assert!(
+            t.observe(&msg(0x0, 1, GM, false, 0), Instant::now())
+                .is_none()
+        );
         assert_eq!(t.pending_count(), 0);
     }
 
@@ -287,7 +309,9 @@ mod tests {
         let now = Instant::now();
         // OTHER asks, GM answers.
         t.observe(&msg(0x1, 55, OTHER, false, 0), now);
-        let c = t.observe(&msg(0x9, 55, GM, false, 0), now).expect("correlated");
+        let c = t
+            .observe(&msg(0x9, 55, GM, false, 0), now)
+            .expect("correlated");
         assert_eq!(c.responds_to, MessageType::DelayReq);
     }
 
@@ -298,11 +322,15 @@ mod tests {
         let now = Instant::now();
 
         t.observe(&msg(0x2, 12, OTHER, false, 0), now); // Pdelay_Req from OTHER
-        let resp = t.observe(&msg(0x3, 12, GM, true, 0), now).expect("resp matches req");
+        let resp = t
+            .observe(&msg(0x3, 12, GM, true, 0), now)
+            .expect("resp matches req");
         assert_eq!(resp.responds_to, MessageType::PdelayReq);
 
         // ...and the third leg matches the response.
-        let fu = t.observe(&msg(0xA, 12, GM, true, 0), now).expect("follow-up matches resp");
+        let fu = t
+            .observe(&msg(0xA, 12, GM, true, 0), now)
+            .expect("follow-up matches resp");
         assert_eq!(fu.responds_to, MessageType::PdelayResp);
         assert_eq!(t.pending_count(), 0);
     }
@@ -321,7 +349,10 @@ mod tests {
         assert_eq!(t.pending_count(), 1, "only the fresh Sync remains");
 
         // The stale one must no longer be completable.
-        assert!(t.observe(&msg(0x8, 1, GM, true, 0), now + Duration::from_secs(11)).is_none());
+        assert!(
+            t.observe(&msg(0x8, 1, GM, true, 0), now + Duration::from_secs(11))
+                .is_none()
+        );
     }
 
     /// An unsolicited Follow_Up (capture started mid-stream) is not an error
@@ -329,6 +360,9 @@ mod tests {
     #[test]
     fn orphan_follow_up_correlates_to_nothing() {
         let mut t = FlowTracker::default();
-        assert!(t.observe(&msg(0x8, 99, GM, true, 0), Instant::now()).is_none());
+        assert!(
+            t.observe(&msg(0x8, 99, GM, true, 0), Instant::now())
+                .is_none()
+        );
     }
 }

@@ -209,7 +209,7 @@ impl Diagnostics {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::message::{parse, Variant};
+    use crate::message::{Variant, parse};
     use crate::monitor::Meta;
     use std::time::{Duration, UNIX_EPOCH};
 
@@ -339,7 +339,10 @@ mod tests {
         assert_eq!(diagnostics.verdict(&key, Some(GM)), Verdict::Stable);
 
         // The same master, still announcing, no longer locked to its reference.
-        diagnostics.observe(&announce(GM, GM, 7), &meta(start + Duration::from_secs_f64(5.0)));
+        diagnostics.observe(
+            &announce(GM, GM, 7),
+            &meta(start + Duration::from_secs_f64(5.0)),
+        );
         assert_eq!(diagnostics.verdict(&key, Some(GM)), Verdict::Holdover);
     }
 
@@ -363,12 +366,22 @@ mod tests {
         let mut diagnostics = Diagnostics::default();
         let start = Instant::now();
         diagnostics.observe(&announce(GM, GM, 6), &meta(start));
-        assert!(diagnostics.election.domain(0, Variant::V2Udp).unwrap().elected.is_some());
+        assert!(
+            diagnostics
+                .election
+                .domain(0, Variant::V2Udp)
+                .unwrap()
+                .elected
+                .is_some()
+        );
 
         diagnostics.settle(start + Duration::from_secs(30));
         let domain = diagnostics.election.domain(0, Variant::V2Udp).unwrap();
         assert_eq!(domain.elected, None);
-        assert_eq!(domain.history.back().unwrap().reason, election::Reason::MasterLost);
+        assert_eq!(
+            domain.history.back().unwrap().reason,
+            election::Reason::MasterLost
+        );
     }
 
     /// A domain appearing is not a master being replaced. Counted as one, a
@@ -382,9 +395,15 @@ mod tests {
         assert_eq!(diagnostics.totals().class_changes, 0);
 
         // The master falls into holdover, then a second one takes the domain.
-        diagnostics.observe(&announce(GM, GM, 248), &meta(start + Duration::from_secs_f64(5.0)));
+        diagnostics.observe(
+            &announce(GM, GM, 248),
+            &meta(start + Duration::from_secs_f64(5.0)),
+        );
         assert_eq!(diagnostics.totals().class_changes, 1);
-        diagnostics.observe(&announce(OTHER, OTHER, 6), &meta(start + Duration::from_secs_f64(5.1)));
+        diagnostics.observe(
+            &announce(OTHER, OTHER, 6),
+            &meta(start + Duration::from_secs_f64(5.1)),
+        );
         assert_eq!(diagnostics.totals().reelections, 1);
     }
 

@@ -247,7 +247,10 @@ impl L2Capture {
         }
         let cap = L2Capture { fd };
 
-        let tv = libc::timeval { tv_sec: 0, tv_usec: 200_000 };
+        let tv = libc::timeval {
+            tv_sec: 0,
+            tv_usec: 200_000,
+        };
         unsafe {
             libc::setsockopt(
                 fd,
@@ -288,7 +291,11 @@ impl L2Capture {
     }
 
     /// Receive one frame, stripping the Ethernet (and any VLAN) header.
-    pub fn recv(&self, buf: &mut [u8], name_of: &dyn Fn(u32) -> String) -> io::Result<Option<Captured>> {
+    pub fn recv(
+        &self,
+        buf: &mut [u8],
+        name_of: &dyn Fn(u32) -> String,
+    ) -> io::Result<Option<Captured>> {
         let mut addr: libc::sockaddr_ll = unsafe { std::mem::zeroed() };
         let mut addr_len = std::mem::size_of::<libc::sockaddr_ll>() as libc::socklen_t;
         let n = unsafe {
@@ -315,7 +322,11 @@ impl L2Capture {
 
         // The destination MAC is the first hint at which flavour this is; the
         // parser corrects it from transportSpecific.
-        let variant = if dst_mac == MAC_PTP_PEER_DELAY { Variant::Gptp } else { Variant::V2Ethernet };
+        let variant = if dst_mac == MAC_PTP_PEER_DELAY {
+            Variant::Gptp
+        } else {
+            Variant::V2Ethernet
+        };
 
         Ok(Some(Captured {
             payload: payload.to_vec(),

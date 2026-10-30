@@ -22,7 +22,7 @@
 //! dependency, and one flat object is not worth acquiring one for.
 
 use crate::diagnostics::Diagnostics;
-use crate::message::{format_clock_id, time_source_meaning, ClockQuality, MessageType};
+use crate::message::{ClockQuality, MessageType, format_clock_id, time_source_meaning};
 use crate::monitor::{ClockRecord, ClockTable, Transports};
 use std::time::Instant;
 
@@ -60,7 +60,8 @@ fn s(raw: &str) -> String {
 /// field was never announced; one that gets `"-"` has to guess whether that is
 /// a missing value or a device that literally announced a dash.
 fn json_or_null<T: std::fmt::Display>(v: Option<T>) -> String {
-    v.map(|v| v.to_string()).unwrap_or_else(|| "null".to_string())
+    v.map(|v| v.to_string())
+        .unwrap_or_else(|| "null".to_string())
 }
 
 fn json_text_or_null(v: Option<&str>) -> String {
@@ -83,7 +84,9 @@ fn number(value: Option<f64>, places: usize) -> String {
 fn clock_diagnostics_json(diagnostics: &Diagnostics, record: &ClockRecord) -> String {
     let verdict = diagnostics.verdict(&record.key, record.grandmaster);
     let sync = diagnostics.arrival.stream(&record.key, MessageType::Sync);
-    let announce = diagnostics.arrival.stream(&record.key, MessageType::Announce);
+    let announce = diagnostics
+        .arrival
+        .stream(&record.key, MessageType::Announce);
     let offset = diagnostics.offset.master(&record.key);
     let delay = diagnostics.offset.delay(&record.key);
 
@@ -167,7 +170,10 @@ fn elections_json(diagnostics: &Diagnostics, now: Instant) -> String {
                         claim.best_class,
                         format!(
                             "{:.3}",
-                            claim.last_at.saturating_duration_since(claim.first_at).as_secs_f64()
+                            claim
+                                .last_at
+                                .saturating_duration_since(claim.first_at)
+                                .as_secs_f64()
                         ),
                     )
                 })
@@ -215,8 +221,11 @@ pub fn snapshot_json(
     capture_seconds: f64,
 ) -> String {
     let now = Instant::now();
-    let interfaces: Vec<String> =
-        transports.interfaces.iter().map(|(n, _, _, _)| s(n)).collect();
+    let interfaces: Vec<String> = transports
+        .interfaces
+        .iter()
+        .map(|(n, _, _, _)| s(n))
+        .collect();
     let problems: Vec<String> = transports.problems.iter().map(|p| s(p)).collect();
 
     // Same conclusion the MQTT agent publishes, drawn the same way.
@@ -246,7 +255,11 @@ pub fn snapshot_json(
                 ),
                 s(&format_clock_id(&c.key.clock_identity)),
                 c.key.port_number,
-                s(if c.is_grandmaster() { "grandmaster" } else { "clock" }),
+                s(if c.is_grandmaster() {
+                    "grandmaster"
+                } else {
+                    "clock"
+                }),
                 s(c.variant.label()),
                 c.domain,
                 s(&c.interface),
@@ -315,7 +328,7 @@ pub fn snapshot_json(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::message::{parse, Variant};
+    use crate::message::{Variant, parse};
     use crate::monitor::Meta;
     use std::time::Instant;
 
@@ -348,11 +361,25 @@ mod tests {
     #[test]
     fn an_empty_capture_is_still_valid_json() {
         let table = ClockTable::default();
-        let transports = Transports { udp: Vec::new(), l2: None, interfaces: Vec::new(), problems: vec!["nope \"quoted\"".into()] };
-        let out = snapshot_json(&table, &Diagnostics::default(), &transports, &Counters::default(), 5.0);
+        let transports = Transports {
+            udp: Vec::new(),
+            l2: None,
+            interfaces: Vec::new(),
+            problems: vec!["nope \"quoted\"".into()],
+        };
+        let out = snapshot_json(
+            &table,
+            &Diagnostics::default(),
+            &transports,
+            &Counters::default(),
+            5.0,
+        );
         assert!(out.starts_with('{') && out.ends_with('}'));
         assert!(out.contains("\"clocks\":[]"));
-        assert!(out.contains(r#"nope \"quoted\""#), "problems must be escaped: {out}");
+        assert!(
+            out.contains(r#"nope \"quoted\""#),
+            "problems must be escaped: {out}"
+        );
     }
 
     #[test]
@@ -360,8 +387,19 @@ mod tests {
         let gm = [0x00, 0x0A, 0x92, 0xFF, 0xFE, 0x01, 0x56, 0xA3];
         let mut table = ClockTable::default();
         table.record(&announce(gm, gm, 0), &meta());
-        let transports = Transports { udp: Vec::new(), l2: None, interfaces: Vec::new(), problems: Vec::new() };
-        let out = snapshot_json(&table, &Diagnostics::default(), &transports, &Counters::default(), 5.0);
+        let transports = Transports {
+            udp: Vec::new(),
+            l2: None,
+            interfaces: Vec::new(),
+            problems: Vec::new(),
+        };
+        let out = snapshot_json(
+            &table,
+            &Diagnostics::default(),
+            &transports,
+            &Counters::default(),
+            5.0,
+        );
         assert!(out.contains("\"role\":\"grandmaster\""));
         assert!(out.contains("\"gm_class\":6"));
         assert!(out.contains("\"interface\":\"enp5s0f0\""));
@@ -374,8 +412,19 @@ mod tests {
         let gm = [0x00, 0x0A, 0x92, 0xFF, 0xFE, 0x01, 0x56, 0xA3];
         let mut table = ClockTable::default();
         table.record(&announce(gm, gm, 0), &meta());
-        let transports = Transports { udp: Vec::new(), l2: None, interfaces: Vec::new(), problems: Vec::new() };
-        let out = snapshot_json(&table, &Diagnostics::default(), &transports, &Counters::default(), 5.0);
+        let transports = Transports {
+            udp: Vec::new(),
+            l2: None,
+            interfaces: Vec::new(),
+            problems: Vec::new(),
+        };
+        let out = snapshot_json(
+            &table,
+            &Diagnostics::default(),
+            &transports,
+            &Counters::default(),
+            5.0,
+        );
         // No Sync was seen, so there is no sync interval to report.
         assert!(out.contains("\"sync_interval_s\":null"));
     }
@@ -410,7 +459,12 @@ mod tests {
     #[test]
     fn no_measurement_ever_renders_as_nan_or_infinity() {
         let (table, diagnostics) = populated();
-        let transports = Transports { udp: Vec::new(), l2: None, interfaces: Vec::new(), problems: Vec::new() };
+        let transports = Transports {
+            udp: Vec::new(),
+            l2: None,
+            interfaces: Vec::new(),
+            problems: Vec::new(),
+        };
         for out in [
             snapshot_json(&table, &diagnostics, &transports, &Counters::default(), 5.0),
             snapshot_json(
@@ -438,7 +492,12 @@ mod tests {
     #[test]
     fn every_clock_row_carries_a_verdict_and_its_meaning() {
         let (table, diagnostics) = populated();
-        let transports = Transports { udp: Vec::new(), l2: None, interfaces: Vec::new(), problems: Vec::new() };
+        let transports = Transports {
+            udp: Vec::new(),
+            l2: None,
+            interfaces: Vec::new(),
+            problems: Vec::new(),
+        };
         let out = snapshot_json(&table, &diagnostics, &transports, &Counters::default(), 5.0);
         assert!(out.contains("\"diagnostics\":{\"verdict\":\""), "{out}");
         assert!(out.contains("\"verdict_meaning\":\""));
@@ -450,7 +509,12 @@ mod tests {
     #[test]
     fn the_election_is_reported_once_per_domain_not_once_per_clock() {
         let (table, diagnostics) = populated();
-        let transports = Transports { udp: Vec::new(), l2: None, interfaces: Vec::new(), problems: Vec::new() };
+        let transports = Transports {
+            udp: Vec::new(),
+            l2: None,
+            interfaces: Vec::new(),
+            problems: Vec::new(),
+        };
         let out = snapshot_json(&table, &diagnostics, &transports, &Counters::default(), 5.0);
         assert_eq!(out.matches("\"elected\":").count(), 1, "{out}");
         assert!(out.contains("\"unresolved\":false"));
@@ -467,9 +531,20 @@ mod tests {
             interfaces: Vec::new(),
             problems: Vec::new(),
         };
-        let counts = Counters { total: 9, undecodable: 0, udp: 0, l2: 9 };
+        let counts = Counters {
+            total: 9,
+            undecodable: 0,
+            udp: 0,
+            l2: 9,
+        };
         // No UDP socket ever opened: silence on UDP is explained already.
-        let out = snapshot_json(&ClockTable::default(), &Diagnostics::default(), &transports, &counts, 5.0);
+        let out = snapshot_json(
+            &ClockTable::default(),
+            &Diagnostics::default(),
+            &transports,
+            &counts,
+            5.0,
+        );
         assert!(out.contains("\"udp_blocked\":false"));
     }
 }

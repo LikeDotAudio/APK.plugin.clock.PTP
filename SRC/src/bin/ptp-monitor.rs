@@ -26,9 +26,9 @@
 
 use apkaudio_ptp::diagnostics::Diagnostics;
 use apkaudio_ptp::flow::FlowTracker;
-use apkaudio_ptp::message::{format_clock_id, MessageType, Variant};
+use apkaudio_ptp::message::{MessageType, Variant, format_clock_id};
 use apkaudio_ptp::monitor::{ClockTable, Observation, Transports};
-use apkaudio_ptp::report::{snapshot_json, Counters};
+use apkaudio_ptp::report::{Counters, snapshot_json};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
@@ -66,7 +66,7 @@ fn main() {
         if json_only {
             println!(
                 "{}",
-                    snapshot_json(
+                snapshot_json(
                     &ClockTable::default(),
                     &Diagnostics::default(),
                     &transports,
@@ -78,8 +78,11 @@ fn main() {
         std::process::exit(1);
     }
 
-    let ifaces: Vec<&str> =
-        transports.interfaces.iter().map(|(n, _, _, _)| n.as_str()).collect();
+    let ifaces: Vec<&str> = transports
+        .interfaces
+        .iter()
+        .map(|(n, _, _, _)| n.as_str())
+        .collect();
     say!(
         "\n👂 listening: {} UDP port(s), L2 {} — interfaces {ifaces:?}",
         transports.udp.len(),
@@ -117,7 +120,11 @@ fn main() {
             total += 1;
             match &obs {
                 Observation::V2(_, _, meta) | Observation::V1(_, meta) => {
-                    if meta.port.is_some() { udp_seen += 1 } else { l2_seen += 1 }
+                    if meta.port.is_some() {
+                        udp_seen += 1
+                    } else {
+                        l2_seen += 1
+                    }
                 }
                 Observation::Undecodable { .. } => {}
             }
@@ -139,7 +146,10 @@ fn main() {
                         Variant::V2Udp => "v2/UDP",
                         Variant::V1 => "v1",
                     };
-                    let port = meta.port.map(|p| p.to_string()).unwrap_or_else(|| "L2".into());
+                    let port = meta
+                        .port
+                        .map(|p| p.to_string())
+                        .unwrap_or_else(|| "L2".into());
 
                     let mut line = format!(
                         "{:>8.3}s {:6} {:>4} {:<21} seq {:5} dom {:3} from {}",
@@ -219,7 +229,9 @@ fn main() {
                         "{:>8.3}s {:6} {:>4} {:<21} seq {:5} sub {:8} from {}",
                         meta.at.saturating_duration_since(started).as_secs_f64(),
                         "v1",
-                        meta.port.map(|p| p.to_string()).unwrap_or_else(|| "L2".into()),
+                        meta.port
+                            .map(|p| p.to_string())
+                            .unwrap_or_else(|| "L2".into()),
                         m.message_type.label(),
                         m.sequence_id,
                         m.subdomain,
@@ -258,7 +270,12 @@ fn main() {
     diagnostics.settle(Instant::now());
 
     if json_only {
-        let counts = Counters { total, undecodable, udp: udp_seen, l2: l2_seen };
+        let counts = Counters {
+            total,
+            undecodable,
+            udp: udp_seen,
+            l2: l2_seen,
+        };
         println!(
             "{}",
             snapshot_json(
@@ -270,7 +287,15 @@ fn main() {
             )
         );
     } else {
-        print_summary(&table, &diagnostics, total, undecodable, udp_seen, l2_seen, &transports);
+        print_summary(
+            &table,
+            &diagnostics,
+            total,
+            undecodable,
+            udp_seen,
+            l2_seen,
+            &transports,
+        );
     }
 }
 
@@ -289,7 +314,9 @@ fn print_summary(
     transports: &Transports,
 ) {
     println!("\n═══════════════════════ CLOCKS SEEN ═══════════════════════");
-    println!("{total} PTP messages ({undecodable} undecodable) — {udp_seen} UDP, {l2_seen} Layer 2\n");
+    println!(
+        "{total} PTP messages ({undecodable} undecodable) — {udp_seen} UDP, {l2_seen} Layer 2\n"
+    );
 
     // The firewall signature. Worth shouting about: every other symptom of it
     // looks exactly like "there is no PTP here".
@@ -320,8 +347,18 @@ fn print_summary(
     clocks.sort_by_key(|c| (c.steps_removed.unwrap_or(u16::MAX), c.key.label()));
 
     for c in clocks {
-        let role = if c.is_grandmaster() { "GRANDMASTER" } else { "clock" };
-        println!("┌─ {} {} [{}] domain {}", role, c.key.label(), c.variant.label(), c.domain);
+        let role = if c.is_grandmaster() {
+            "GRANDMASTER"
+        } else {
+            "clock"
+        };
+        println!(
+            "┌─ {} {} [{}] domain {}",
+            role,
+            c.key.label(),
+            c.variant.label(),
+            c.domain
+        );
         if let Some(gm) = c.grandmaster {
             println!("│  follows GM   {}", format_clock_id(&gm));
         }
@@ -331,7 +368,11 @@ fn print_summary(
                 accuracy: c.grandmaster_accuracy.unwrap_or(0xFE),
                 offset_scaled_log_variance: 0,
             };
-            println!("│  GM quality   class {class} ({}) / accuracy {}", q.class_meaning(), q.accuracy_meaning());
+            println!(
+                "│  GM quality   class {class} ({}) / accuracy {}",
+                q.class_meaning(),
+                q.accuracy_meaning()
+            );
         }
         if let Some(steps) = c.steps_removed {
             println!("│  stepsRemoved {steps}");
@@ -343,7 +384,11 @@ fn print_summary(
             println!("│  UTC offset   {utc}s");
         }
         if let Some(i) = c.sync_interval {
-            println!("│  Sync every   {:.3}s  ({})", i, if c.two_step { "two-step" } else { "one-step" });
+            println!(
+                "│  Sync every   {:.3}s  ({})",
+                i,
+                if c.two_step { "two-step" } else { "one-step" }
+            );
         }
         if let Some(i) = c.announce_interval {
             println!("│  Announce ev. {i:.3}s");
@@ -366,7 +411,11 @@ fn print_summary(
 /// for four seconds has half of them and a table would show that as zeroes.
 fn print_clock_diagnostics(diagnostics: &Diagnostics, record: &apkaudio_ptp::monitor::ClockRecord) {
     let verdict = diagnostics.verdict(&record.key, record.grandmaster);
-    println!("│  sync health  {} — {}", verdict.label(), verdict.meaning());
+    println!(
+        "│  sync health  {} — {}",
+        verdict.label(),
+        verdict.meaning()
+    );
 
     if let Some(sync) = diagnostics.arrival.stream(&record.key, MessageType::Sync) {
         let mut line = format!("│  arrival      Sync ×{}", sync.count);
@@ -377,7 +426,10 @@ fn print_clock_diagnostics(diagnostics: &Diagnostics, record: &apkaudio_ptp::mon
             line.push_str(&format!("  jitter {:.3}ms", jitter * 1000.0));
         }
         if sync.variation_samples > 0 {
-            line.push_str(&format!("  peak swing {:.3}ms", sync.variation_peak * 1000.0));
+            line.push_str(&format!(
+                "  peak swing {:.3}ms",
+                sync.variation_peak * 1000.0
+            ));
         }
         if let Some(error) = sync.rate_error() {
             line.push_str(&format!("  rate {:+.2}%", error * 100.0));
@@ -406,17 +458,24 @@ fn print_clock_diagnostics(diagnostics: &Diagnostics, record: &apkaudio_ptp::mon
         }
         println!("{line}");
         if !offset.utc_offset_applied {
-            println!("│               ↳ no currentUtcOffset heard — the TAI/UTC gap is in that figure");
+            println!(
+                "│               ↳ no currentUtcOffset heard — the TAI/UTC gap is in that figure"
+            );
         }
         if !offset.ptp_timescale {
-            println!("│               ↳ ptpTimescale is clear — only the spread and the drift mean anything");
+            println!(
+                "│               ↳ ptpTimescale is clear — only the spread and the drift mean anything"
+            );
         }
     }
 
     if let Some(delay) = diagnostics.offset.delay(&record.key) {
         let mut parts = Vec::new();
         if let Some(mean) = delay.mean_correction() {
-            parts.push(format!("correction mean {mean:.0}ns peak {:.0}ns", delay.correction_peak));
+            parts.push(format!(
+                "correction mean {mean:.0}ns peak {:.0}ns",
+                delay.correction_peak
+            ));
         }
         if let Some(mean) = delay.mean_turnaround() {
             parts.push(format!("peer turnaround mean {mean:.0}ns"));
@@ -468,9 +527,11 @@ fn print_elections(diagnostics: &Diagnostics) {
         }
 
         if election.unresolved() {
-            println!("   ⚠️  {} masters are live in this domain:", election.claims.len());
-            let mut identities: Vec<String> =
-                election.claims.keys().map(format_clock_id).collect();
+            println!(
+                "   ⚠️  {} masters are live in this domain:",
+                election.claims.len()
+            );
+            let mut identities: Vec<String> = election.claims.keys().map(format_clock_id).collect();
             identities.sort();
             for identity in identities {
                 println!("        {identity}");
@@ -482,8 +543,14 @@ fn print_elections(diagnostics: &Diagnostics) {
             println!(
                 "   ↳ {:.1}s ago: {} → {} ({})",
                 now.saturating_duration_since(change.at).as_secs_f64(),
-                change.from.map(|g| format_clock_id(&g)).unwrap_or_else(|| "—".into()),
-                change.to.map(|g| format_clock_id(&g)).unwrap_or_else(|| "none".into()),
+                change
+                    .from
+                    .map(|g| format_clock_id(&g))
+                    .unwrap_or_else(|| "—".into()),
+                change
+                    .to
+                    .map(|g| format_clock_id(&g))
+                    .unwrap_or_else(|| "none".into()),
                 change.reason.label(),
             );
         }

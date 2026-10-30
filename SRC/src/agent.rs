@@ -32,15 +32,15 @@
 
 use crate::diagnostics::{Diagnostics, Totals};
 use crate::flow::FlowTracker;
-use crate::message::{format_clock_id, time_source_meaning, ClockQuality};
+use crate::message::{ClockQuality, format_clock_id, time_source_meaning};
 use crate::monitor::{ClockTable, Observation, Transports};
-use std::time::{Duration, Instant};
 use apkaudio_contracts::agent_counters::Sampler;
 use apkaudio_contracts::agent_state::AgentReport;
 use apkaudio_contracts::device_publish::Sighting;
 use apkaudio_contracts::device_record::DeviceRecordStatus;
 use apkaudio_contracts::presence;
-use apkaudio_contracts::topics::{sanitize_segment, TopicError};
+use apkaudio_contracts::topics::{TopicError, sanitize_segment};
+use std::time::{Duration, Instant};
 
 /// Retained attribute keys per clock port. Order here is the UI column order.
 ///
@@ -94,7 +94,12 @@ const HEARTBEAT: Duration = Duration::from_secs(30);
 /// "unkept" is a property of the agent that cannot be half-applied by a future
 /// edit that forgets one argument.
 fn say(mqtt_client: &rumqttc::Client, topic: impl Into<String>, payload: impl Into<Vec<u8>>) {
-    let _ = mqtt_client.publish(topic.into(), rumqttc::QoS::AtMostOnce, false, payload.into());
+    let _ = mqtt_client.publish(
+        topic.into(),
+        rumqttc::QoS::AtMostOnce,
+        false,
+        payload.into(),
+    );
 }
 
 /// The same cadence as `HEARTBEAT`, declared in every `AgentCounters` payload
@@ -116,7 +121,6 @@ const FIRST_FLUSH: Duration = Duration::from_secs(10);
 /// PTP is continuous by nature: a healthy clock is never silent for 30s at any
 /// standard rate. Silence therefore means gone, not idle.
 const CLOCK_TIMEOUT: Duration = Duration::from_secs(30);
-
 
 /// Blocking listen loop — run on a dedicated thread.
 pub fn run_listen_agent(mqtt_host: &str, mqtt_port: u16) {
@@ -169,7 +173,10 @@ pub fn run_listen_agent(mqtt_host: &str, mqtt_port: u16) {
     // how many transports opened; it cannot say WHERE, and "is the hunter up"
     // is really "is it up on the interface I care about".
     let account = account.map(|a| a.on(transports.interfaces.iter().map(|(name, ..)| name)));
-    println!("🔎 [PTP] {}: {detail}", account.as_ref().map(|a| a.state().as_str()).unwrap_or("?"));
+    println!(
+        "🔎 [PTP] {}: {detail}",
+        account.as_ref().map(|a| a.state().as_str()).unwrap_or("?")
+    );
     // Kept in hand, not just sent: unretained, this account is true for one
     // heartbeat at a time and has to be restated for as long as it holds.
     let state_publications = publications_of(account);
@@ -237,7 +244,11 @@ pub fn run_listen_agent(mqtt_host: &str, mqtt_port: u16) {
             if let Some(obs) = &obs {
                 match obs {
                     Observation::V2(_, _, meta) | Observation::V1(_, meta) => {
-                        if meta.port.is_some() { counters.inc("udpSeen") } else { counters.inc("l2Seen") }
+                        if meta.port.is_some() {
+                            counters.inc("udpSeen")
+                        } else {
+                            counters.inc("l2Seen")
+                        }
                     }
                     Observation::Undecodable { .. } => {}
                 }
@@ -263,7 +274,13 @@ pub fn run_listen_agent(mqtt_host: &str, mqtt_port: u16) {
                 // announces. Without this sweep the dead master stays elected
                 // and every clock under it keeps reporting itself healthy.
                 diagnostics.settle(last_flush);
-                flush(&mqtt_client, &mut table, &mut spells, &vendors, &diagnostics);
+                flush(
+                    &mqtt_client,
+                    &mut table,
+                    &mut spells,
+                    &vendors,
+                    &diagnostics,
+                );
                 diagnostics.retain_ports(|key| table.clocks.contains_key(key));
                 count_faults(&mut counters, &mut reported, diagnostics.totals());
                 report_reception(&mqtt_client, &counters, !transports.udp.is_empty());
@@ -329,20 +346,49 @@ fn flush(
             clock.key.port_number.to_string(),
             clock.variant.label().to_string(),
             clock.domain.to_string(),
-            if clock.is_grandmaster() { "grandmaster" } else { "clock" }.to_string(),
-            clock.grandmaster.map(|g| format_clock_id(&g)).unwrap_or_else(dash),
-            clock.grandmaster_class.map(|c| c.to_string()).unwrap_or_else(dash),
-            clock.grandmaster_class.map(|_| quality.class_meaning().to_string()).unwrap_or_else(dash),
-            clock.grandmaster_accuracy.map(|_| quality.accuracy_meaning().to_string()).unwrap_or_else(dash),
-            clock.time_source.map(|t| time_source_meaning(t).to_string()).unwrap_or_else(dash),
-            clock.steps_removed.map(|s| s.to_string()).unwrap_or_else(dash),
+            if clock.is_grandmaster() {
+                "grandmaster"
+            } else {
+                "clock"
+            }
+            .to_string(),
+            clock
+                .grandmaster
+                .map(|g| format_clock_id(&g))
+                .unwrap_or_else(dash),
+            clock
+                .grandmaster_class
+                .map(|c| c.to_string())
+                .unwrap_or_else(dash),
+            clock
+                .grandmaster_class
+                .map(|_| quality.class_meaning().to_string())
+                .unwrap_or_else(dash),
+            clock
+                .grandmaster_accuracy
+                .map(|_| quality.accuracy_meaning().to_string())
+                .unwrap_or_else(dash),
+            clock
+                .time_source
+                .map(|t| time_source_meaning(t).to_string())
+                .unwrap_or_else(dash),
+            clock
+                .steps_removed
+                .map(|s| s.to_string())
+                .unwrap_or_else(dash),
             clock.priority1.map(|p| p.to_string()).unwrap_or_else(dash),
             clock.priority2.map(|p| p.to_string()).unwrap_or_else(dash),
-            clock.sync_interval.map(|i| format!("{i:.4}")).unwrap_or_else(dash),
+            clock
+                .sync_interval
+                .map(|i| format!("{i:.4}"))
+                .unwrap_or_else(dash),
             clock.two_step.to_string(),
             clock.subdomain.clone().unwrap_or_else(dash),
             clock.message_summary(),
-            diagnostics.verdict(&clock.key, clock.grandmaster).label().to_string(),
+            diagnostics
+                .verdict(&clock.key, clock.grandmaster)
+                .label()
+                .to_string(),
             "identified".to_string(),
             presence::ONLINE_NOW.to_string(),
             online_since.to_string(),
@@ -366,7 +412,11 @@ fn flush(
             .class("Clock")
             .made_by(
                 &vendors.vendor(&clock_id).unwrap_or_else(dash),
-                if clock.is_grandmaster() { "PTP Grandmaster" } else { "PTP Clock" },
+                if clock.is_grandmaster() {
+                    "PTP Grandmaster"
+                } else {
+                    "PTP Clock"
+                },
             )
             .serial(&topic_seg)
             .raw_idn(&clock_id)
@@ -374,7 +424,10 @@ fn flush(
                 "domain {}, port {}, {} steps removed",
                 clock.domain,
                 clock.key.port_number,
-                clock.steps_removed.map(|s| s.to_string()).unwrap_or_else(dash)
+                clock
+                    .steps_removed
+                    .map(|s| s.to_string())
+                    .unwrap_or_else(dash)
             ))
             .status(DeviceRecordStatus::Identified);
         apk_plugin_runner::presence::seen(&sighting, Some(&prefix));
@@ -412,7 +465,9 @@ fn flush(
         spells.remove(&seg);
     }
 
-    table.clocks.retain(|_, c| now.saturating_duration_since(c.last_seen) <= CLOCK_TIMEOUT);
+    table
+        .clocks
+        .retain(|_, c| now.saturating_duration_since(c.last_seen) <= CLOCK_TIMEOUT);
 }
 
 /// Turn the diagnostics' running totals into counter increments.
@@ -425,8 +480,14 @@ fn flush(
 /// clock left, rather than a negative rate or a wrapped enormous one.
 fn count_faults(counters: &mut Sampler, reported: &mut Totals, now: Totals) {
     counters.add("syncLost", now.sync_lost.saturating_sub(reported.sync_lost));
-    counters.add("syncReordered", now.sync_reordered.saturating_sub(reported.sync_reordered));
-    counters.add("reelections", now.reelections.saturating_sub(reported.reelections));
+    counters.add(
+        "syncReordered",
+        now.sync_reordered.saturating_sub(reported.sync_reordered),
+    );
+    counters.add(
+        "reelections",
+        now.reelections.saturating_sub(reported.reelections),
+    );
     counters.add(
         "grandmasterClassChanges",
         now.class_changes.saturating_sub(reported.class_changes),
@@ -455,11 +516,7 @@ fn count_faults(counters: &mut Sampler, reported: &mut Totals, now: Totals) {
 /// those four consumers see it within one HEARTBEAT of subscribing and see
 /// nothing at all once the agent stops — which is the honest reading of "this
 /// host's firewall state is currently unknown".
-fn report_reception(
-    mqtt_client: &rumqttc::Client,
-    counters: &Sampler,
-    udp_open: bool,
-) {
+fn report_reception(mqtt_client: &rumqttc::Client, counters: &Sampler, udp_open: bool) {
     match counters.publication(unix_ms_now()) {
         // The contract's own retain flag is ignored here, as everywhere in
         // this agent: `say` is the only way out.
@@ -561,8 +618,14 @@ mod tests {
             "every publish must go through say(); found a direct client call"
         );
 
-        let unkept = format!("QoS::At{}Once, false", "Most");
-        assert!(source.contains(&unkept), "say() must publish QoS 0, not retained");
+        // Compared with whitespace removed, so rustfmt laying the call's
+        // arguments out one per line does not read as a retained publish.
+        let squeezed: String = source.chars().filter(|c| !c.is_whitespace()).collect();
+        let unkept = format!("QoS::At{}Once,false", "Most");
+        assert!(
+            squeezed.contains(&unkept),
+            "say() must publish QoS 0, not retained"
+        );
 
         for kept in [format!("At{}Once", "Least"), format!("Exactly{}", "Once")] {
             assert!(
@@ -575,7 +638,10 @@ mod tests {
     #[test]
     fn topic_segments_keep_clock_identities_readable() {
         // Clock identities are colon-separated on the wire; topics use "_".
-        assert_eq!(sanitize_segment("00:0A:92:FF:FE:01:56:A3"), "00_0A_92_FF_FE_01_56_A3");
+        assert_eq!(
+            sanitize_segment("00:0A:92:FF:FE:01:56:A3"),
+            "00_0A_92_FF_FE_01_56_A3"
+        );
         assert_eq!(sanitize_segment("a/b+c#d"), "a_b_c_d");
     }
 
@@ -607,15 +673,33 @@ mod tests {
         counters.declare("grandmasterClassChanges");
         let mut reported = Totals::default();
 
-        count_faults(&mut counters, &mut reported, Totals { sync_lost: 9, ..Totals::default() });
+        count_faults(
+            &mut counters,
+            &mut reported,
+            Totals {
+                sync_lost: 9,
+                ..Totals::default()
+            },
+        );
         assert_eq!(counters.get("syncLost"), 9);
 
         // The clock carrying those nine went away.
         count_faults(&mut counters, &mut reported, Totals::default());
-        assert_eq!(counters.get("syncLost"), 9, "the count holds, it does not wrap");
+        assert_eq!(
+            counters.get("syncLost"),
+            9,
+            "the count holds, it does not wrap"
+        );
 
         // ...and the next fault after that still lands.
-        count_faults(&mut counters, &mut reported, Totals { sync_lost: 2, ..Totals::default() });
+        count_faults(
+            &mut counters,
+            &mut reported,
+            Totals {
+                sync_lost: 2,
+                ..Totals::default()
+            },
+        );
         assert_eq!(counters.get("syncLost"), 11);
     }
 }

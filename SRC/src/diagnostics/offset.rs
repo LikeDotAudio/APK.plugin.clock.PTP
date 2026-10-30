@@ -4,7 +4,7 @@
 //! actually measure.
 
 use crate::flow::PortKey;
-use crate::message::{MessageType, PtpMessage, Timestamp, Variant, FLAG_PTP_TIMESCALE};
+use crate::message::{FLAG_PTP_TIMESCALE, MessageType, PtpMessage, Timestamp, Variant};
 use std::collections::HashMap;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -146,8 +146,7 @@ impl MasterOffset {
     /// and therefore the part that is about the clock rather than about the
     /// path. Standard deviation, in nanoseconds.
     pub fn spread_nanos(&self) -> Option<f64> {
-        (self.samples > 1)
-            .then(|| (self.squared_deviations / (self.samples - 1) as f64).sqrt())
+        (self.samples > 1).then(|| (self.squared_deviations / (self.samples - 1) as f64).sqrt())
     }
 
     /// Worst-to-best excursion of the apparent offset, in nanoseconds.
@@ -166,7 +165,10 @@ impl MasterOffset {
             return None;
         }
         let count = self.samples as f64;
-        let span = self.last_at.saturating_duration_since(self.first_at).as_secs_f64();
+        let span = self
+            .last_at
+            .saturating_duration_since(self.first_at)
+            .as_secs_f64();
         if span < 1.0 {
             return None;
         }
@@ -178,7 +180,9 @@ impl MasterOffset {
 
     /// Seconds of wall time the samples span.
     pub fn observed_seconds(&self) -> f64 {
-        self.last_at.saturating_duration_since(self.first_at).as_secs_f64()
+        self.last_at
+            .saturating_duration_since(self.first_at)
+            .as_secs_f64()
     }
 }
 
@@ -235,8 +239,10 @@ impl OffsetWatch {
         match message.message_type {
             MessageType::Announce => {
                 if let Some(announce) = &message.announce {
-                    self.utc_offsets
-                        .insert((message.domain, message.variant), announce.current_utc_offset);
+                    self.utc_offsets.insert(
+                        (message.domain, message.variant),
+                        announce.current_utc_offset,
+                    );
                 }
             }
             MessageType::Sync => {
@@ -244,7 +250,14 @@ impl OffsetWatch {
                 if message.is_two_step() {
                     self.remember_sync(key, message, arrived_at, at);
                 } else if let Some(timestamp) = live_timestamp(message) {
-                    self.sample(key, message, timestamp, arrived_at, at, message.correction_ns);
+                    self.sample(
+                        key,
+                        message,
+                        timestamp,
+                        arrived_at,
+                        at,
+                        message.correction_ns,
+                    );
                 }
             }
             MessageType::FollowUp => {
@@ -252,7 +265,9 @@ impl OffsetWatch {
                 let Some(pending) = self.pending_sync.remove(&(key, message.sequence_id)) else {
                     return;
                 };
-                let Some(timestamp) = live_timestamp(message) else { return };
+                let Some(timestamp) = live_timestamp(message) else {
+                    return;
+                };
                 // The Sync is the packet that crossed the network; the
                 // Follow_Up only carries the number. Pairing the Follow_Up's
                 // t1 with the Follow_Up's OWN arrival would fold the gap
@@ -279,7 +294,10 @@ impl OffsetWatch {
                     self.sweep_peer(at);
                     self.pending_peer.insert(
                         (key, message.sequence_id),
-                        PendingPeer { request_received: timestamp, seen_at: at },
+                        PendingPeer {
+                            request_received: timestamp,
+                            seen_at: at,
+                        },
                     );
                 }
             }
@@ -287,7 +305,9 @@ impl OffsetWatch {
                 let Some(pending) = self.pending_peer.remove(&(key, message.sequence_id)) else {
                     return;
                 };
-                let Some(response_origin) = live_timestamp(message) else { return };
+                let Some(response_origin) = live_timestamp(message) else {
+                    return;
+                };
                 let turnaround = as_nanos(&response_origin) - as_nanos(&pending.request_received);
                 // Both stamps are the responder's own, so a negative result is
                 // not a clock disagreement — it is a malformed pair, and
@@ -380,15 +400,18 @@ impl OffsetWatch {
         correction: f64,
         ptp_timescale: bool,
     ) {
-        let Ok(since_epoch) = arrived_at.duration_since(UNIX_EPOCH) else { return };
+        let Ok(since_epoch) = arrived_at.duration_since(UNIX_EPOCH) else {
+            return;
+        };
         let utc_offset = self.utc_offsets.get(&(domain, variant)).copied();
-        let arrival_nanos = since_epoch.as_nanos() as i128
-            + i128::from(utc_offset.unwrap_or(0)) * NANOS_PER_SECOND;
+        let arrival_nanos =
+            since_epoch.as_nanos() as i128 + i128::from(utc_offset.unwrap_or(0)) * NANOS_PER_SECOND;
         let offset = arrival_nanos - as_nanos(&origin) - correction.round() as i128;
 
-        let record = self.masters.entry(key).or_insert_with(|| {
-            MasterOffset::new(offset, at, utc_offset.is_some(), ptp_timescale)
-        });
+        let record = self
+            .masters
+            .entry(key)
+            .or_insert_with(|| MasterOffset::new(offset, at, utc_offset.is_some(), ptp_timescale));
         record.utc_offset_applied = utc_offset.is_some();
         record.ptp_timescale = ptp_timescale;
         record.push(offset, at);
@@ -550,7 +573,11 @@ mod tests {
             at,
         );
         let record = watch.masters.values().next().unwrap();
-        assert_eq!(record.latest_nanos(), 200_000, "250us arrival less 50us residence");
+        assert_eq!(
+            record.latest_nanos(),
+            200_000,
+            "250us arrival less 50us residence"
+        );
         let delay = watch.delays.values().next().unwrap();
         assert_eq!(delay.mean_correction(), Some(50_000.0));
     }
@@ -588,7 +615,10 @@ mod tests {
                 start + Duration::from_secs(step),
             );
         }
-        assert_eq!(watch.masters.values().next().unwrap().drift_per_second(), None);
+        assert_eq!(
+            watch.masters.values().next().unwrap().drift_per_second(),
+            None
+        );
     }
 
     /// The peer-delay responder's two stamps are both its own, so the

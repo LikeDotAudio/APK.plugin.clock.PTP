@@ -106,14 +106,12 @@ impl Cadence {
     /// Needs two intervals, not two packets: one interval has no spread, and
     /// the sample variance would divide by zero to say so.
     pub fn jitter(&self) -> Option<f64> {
-        (self.intervals > 1)
-            .then(|| (self.squared_deviations / (self.intervals - 1) as f64).sqrt())
+        (self.intervals > 1).then(|| (self.squared_deviations / (self.intervals - 1) as f64).sqrt())
     }
 
     /// Mean magnitude of the swing between consecutive intervals.
     pub fn variation_mean(&self) -> Option<f64> {
-        (self.variation_samples > 0)
-            .then(|| self.variation_total / self.variation_samples as f64)
+        (self.variation_samples > 0).then(|| self.variation_total / self.variation_samples as f64)
     }
 
     /// How far the observed rate sits from the advertised one, as a fraction.
@@ -206,12 +204,21 @@ pub struct ArrivalWatch {
 
 impl ArrivalWatch {
     pub fn observe(&mut self, message: &PtpMessage, at: Instant) {
-        let key = StreamKey { port: PortKey::of(message), message_type: message.message_type };
-        self.streams.entry(key).or_insert_with(|| Cadence::new(at)).observe(message, at);
+        let key = StreamKey {
+            port: PortKey::of(message),
+            message_type: message.message_type,
+        };
+        self.streams
+            .entry(key)
+            .or_insert_with(|| Cadence::new(at))
+            .observe(message, at);
     }
 
     pub fn stream(&self, port: &PortKey, message_type: MessageType) -> Option<&Cadence> {
-        self.streams.get(&StreamKey { port: *port, message_type })
+        self.streams.get(&StreamKey {
+            port: *port,
+            message_type,
+        })
     }
 
     /// Forget streams whose port is gone, so the memory follows the clock table.
@@ -223,7 +230,7 @@ impl ArrivalWatch {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::message::{parse, Variant};
+    use crate::message::{Variant, parse};
     use std::time::Duration;
 
     const GM: [u8; 8] = [0x00, 0x0A, 0x92, 0xFF, 0xFE, 0x01, 0x56, 0xA3];
@@ -260,7 +267,10 @@ mod tests {
         let cadence = watch.streams.values().next().unwrap();
         assert_eq!(cadence.count, 9);
         assert!((cadence.mean_interval().unwrap() - 0.125).abs() < 1e-9);
-        assert!(cadence.jitter().unwrap() < 1e-9, "even spacing is zero spread");
+        assert!(
+            cadence.jitter().unwrap() < 1e-9,
+            "even spacing is zero spread"
+        );
         assert_eq!(cadence.variation_peak, 0.0);
         assert_eq!(cadence.lost, 0);
     }
@@ -274,7 +284,10 @@ mod tests {
         let cadence = watch.streams.values().next().unwrap();
         assert_eq!(cadence.expected_interval, Some(0.125));
         let error = cadence.rate_error().unwrap();
-        assert!((error - 0.2).abs() < 1e-6, "0.150 vs 0.125 is +20%, got {error}");
+        assert!(
+            (error - 0.2).abs() < 1e-6,
+            "0.150 vs 0.125 is +20%, got {error}"
+        );
     }
 
     /// One late packet in an otherwise even stream is what a buffer has to
@@ -282,7 +295,12 @@ mod tests {
     #[test]
     fn a_single_late_packet_shows_up_as_peak_variation() {
         let mut watch = ArrivalWatch::default();
-        feed(&mut watch, Instant::now(), &[0.125, 0.125, 0.400, 0.125, 0.125], 0);
+        feed(
+            &mut watch,
+            Instant::now(),
+            &[0.125, 0.125, 0.400, 0.125, 0.125],
+            0,
+        );
         let cadence = watch.streams.values().next().unwrap();
         // 0.400 - 0.125 arriving, then 0.125 - 0.400 leaving: both 0.275.
         assert!((cadence.variation_peak - 0.275).abs() < 1e-9);

@@ -119,7 +119,9 @@ pub fn format_uuid(uuid: &[u8; 6]) -> String {
 /// This is a *convention*, not a guarantee, so callers should treat a match as
 /// strong evidence rather than proof.
 pub fn uuid_as_clock_identity(uuid: &[u8; 6]) -> [u8; 8] {
-    [uuid[0], uuid[1], uuid[2], 0xFF, 0xFE, uuid[3], uuid[4], uuid[5]]
+    [
+        uuid[0], uuid[1], uuid[2], 0xFF, 0xFE, uuid[3], uuid[4], uuid[5],
+    ]
 }
 
 /// The numeric domain a v1 subdomain lines up with.

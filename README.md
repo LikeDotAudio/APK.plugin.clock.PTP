@@ -110,7 +110,7 @@ the legacy pyo3 `clock` and `parser` shims; nothing above depends on them.
 
 ```sh
 # from PODS/POD.THICK/DISCOVERY.Engine/SRC
-cargo test -p apkaudio-ptp                       # 90 tests (2026-10-30)
+cargo test -p apkaudio-ptp                       # 92 tests, one is `cargo fmt --check` (2026-10-30)
 cargo check -p apkaudio-ptp --features python    # compiles (2026-10-30)
 cargo build -p apkaudio-ptp --bin ptp-monitor
 

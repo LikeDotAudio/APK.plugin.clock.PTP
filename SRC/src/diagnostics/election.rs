@@ -197,7 +197,9 @@ impl DomainElection {
     }
 
     fn observe(&mut self, message: &PtpMessage, at: Instant) {
-        let Some(announce) = &message.announce else { return };
+        let Some(announce) = &message.announce else {
+            return;
+        };
         let interval = believable_announce_interval(message.interval_secs());
         let entry = self
             .claims
@@ -228,7 +230,10 @@ impl DomainElection {
         {
             entry.best_class = announce.grandmaster_quality.class;
         }
-        entry.holdover_since = match (is_holdover(announce.grandmaster_quality.class), entry.holdover_since) {
+        entry.holdover_since = match (
+            is_holdover(announce.grandmaster_quality.class),
+            entry.holdover_since,
+        ) {
             (true, Some(since)) => Some(since),
             (true, None) => Some(at),
             (false, _) => None,
@@ -246,8 +251,9 @@ impl DomainElection {
     /// Drop claims that have gone past their announce receipt timeout.
     fn expire(&mut self, now: Instant) -> bool {
         let before = self.claims.len();
-        self.claims
-            .retain(|_, claim| now.saturating_duration_since(claim.last_at) < claim.silence_budget());
+        self.claims.retain(|_, claim| {
+            now.saturating_duration_since(claim.last_at) < claim.silence_budget()
+        });
         before != self.claims.len()
     }
 
@@ -267,8 +273,12 @@ impl DomainElection {
             _ if lost_a_claim => Reason::MasterLost,
             _ => Reason::BetterClock,
         };
-        let change =
-            ElectionChange { from: self.elected, to: winner, at: now, reason };
+        let change = ElectionChange {
+            from: self.elected,
+            to: winner,
+            at: now,
+            reason,
+        };
         self.elected = winner;
         self.elected_since = now;
         self.changes += 1;
@@ -313,7 +323,12 @@ impl ElectionWatch {
     }
 
     /// The claim a given grandmaster identity is making, wherever it is.
-    pub fn claim(&self, domain: u8, variant: Variant, identity: &[u8; 8]) -> Option<&GrandmasterClaim> {
+    pub fn claim(
+        &self,
+        domain: u8,
+        variant: Variant,
+        identity: &[u8; 8],
+    ) -> Option<&GrandmasterClaim> {
         self.domains.get(&(domain, variant))?.claims.get(identity)
     }
 }
@@ -405,7 +420,10 @@ mod tests {
         // logMessageInterval 0 -> 1s announces -> a 3s receipt timeout.
         watch.observe(&announce(BETTER, BETTER, 100, 6, 128, 0, 0), start);
         watch.observe(&announce(WORSE, WORSE, 128, 6, 128, 0, 0), start);
-        assert_eq!(watch.domain(0, Variant::V2Udp).unwrap().elected, Some(BETTER));
+        assert_eq!(
+            watch.domain(0, Variant::V2Udp).unwrap().elected,
+            Some(BETTER)
+        );
 
         // Only the runner-up keeps announcing.
         watch.observe(
@@ -434,7 +452,10 @@ mod tests {
         );
         let claim = watch.claim(0, Variant::V2Udp, &BETTER).unwrap();
         assert!(claim.in_holdover());
-        assert!(claim.has_fallen_out_of_lock(), "it was locked to GPS a second ago");
+        assert!(
+            claim.has_fallen_out_of_lock(),
+            "it was locked to GPS a second ago"
+        );
         assert_eq!(claim.class_changes, 1);
         assert_eq!(claim.best_class, 6);
     }
@@ -456,12 +477,24 @@ mod tests {
         let mut watch = ElectionWatch::default();
         let start = Instant::now();
         watch.observe(&announce(BETTER, BETTER, 128, 7, 128, 0, 0), start);
-        assert!(watch.claim(0, Variant::V2Udp, &BETTER).unwrap().holdover_since.is_some());
+        assert!(
+            watch
+                .claim(0, Variant::V2Udp, &BETTER)
+                .unwrap()
+                .holdover_since
+                .is_some()
+        );
         watch.observe(
             &announce(BETTER, BETTER, 128, 6, 128, 0, 0),
             start + Duration::from_secs(1),
         );
-        assert!(watch.claim(0, Variant::V2Udp, &BETTER).unwrap().holdover_since.is_none());
+        assert!(
+            watch
+                .claim(0, Variant::V2Udp, &BETTER)
+                .unwrap()
+                .holdover_since
+                .is_none()
+        );
     }
 
     /// Two domains are two elections, and a master in one must not win the
@@ -472,8 +505,14 @@ mod tests {
         let at = Instant::now();
         watch.observe(&announce(BETTER, BETTER, 128, 6, 128, 0, 0), at);
         watch.observe(&announce(WORSE, WORSE, 128, 6, 128, 127, 0), at);
-        assert_eq!(watch.domain(0, Variant::V2Udp).unwrap().elected, Some(BETTER));
-        assert_eq!(watch.domain(127, Variant::V2Udp).unwrap().elected, Some(WORSE));
+        assert_eq!(
+            watch.domain(0, Variant::V2Udp).unwrap().elected,
+            Some(BETTER)
+        );
+        assert_eq!(
+            watch.domain(127, Variant::V2Udp).unwrap().elected,
+            Some(WORSE)
+        );
     }
 
     /// A `logAnnounceInterval` of 127 is one announce every 5e30 years. Taken
@@ -485,7 +524,10 @@ mod tests {
         let start = Instant::now();
         watch.observe(&announce(BETTER, BETTER, 128, 6, 128, 0, 127), start);
         assert_eq!(
-            watch.claim(0, Variant::V2Udp, &BETTER).unwrap().announce_interval,
+            watch
+                .claim(0, Variant::V2Udp, &BETTER)
+                .unwrap()
+                .announce_interval,
             DEFAULT_ANNOUNCE_INTERVAL
         );
 
@@ -500,8 +542,11 @@ mod tests {
         let mut watch = ElectionWatch::default();
         let start = Instant::now();
         for step in 0..100u64 {
-            let (announcer, grandmaster) =
-                if step % 2 == 0 { (BETTER, BETTER) } else { (WORSE, WORSE) };
+            let (announcer, grandmaster) = if step % 2 == 0 {
+                (BETTER, BETTER)
+            } else {
+                (WORSE, WORSE)
+            };
             // Each pass is far enough apart that the other master times out.
             watch.observe(
                 &announce(announcer, grandmaster, 128, 6, 128, 0, 0),

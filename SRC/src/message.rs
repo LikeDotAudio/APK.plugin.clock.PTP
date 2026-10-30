@@ -115,7 +115,10 @@ impl MessageType {
 
     /// Event messages are hardware-timestamped and travel on port 319.
     pub fn is_event(&self) -> bool {
-        matches!(self, Self::Sync | Self::DelayReq | Self::PdelayReq | Self::PdelayResp)
+        matches!(
+            self,
+            Self::Sync | Self::DelayReq | Self::PdelayReq | Self::PdelayResp
+        )
     }
 }
 
@@ -137,7 +140,10 @@ impl Timestamp {
             | ((b[3] as u64) << 16)
             | ((b[4] as u64) << 8)
             | (b[5] as u64);
-        Self { seconds, nanos: u32::from_be_bytes([b[6], b[7], b[8], b[9]]) }
+        Self {
+            seconds,
+            nanos: u32::from_be_bytes([b[6], b[7], b[8], b[9]]),
+        }
     }
 
     pub fn is_zero(&self) -> bool {
@@ -285,7 +291,11 @@ pub enum ParseError {
     /// `versionPTP` is not 2. PTPv1 lands here and is handled by [`crate::v1`].
     NotVersion2(u8),
     /// Header parsed, but the body for this message type is truncated.
-    ShortBody { message_type: MessageType, need: usize, got: usize },
+    ShortBody {
+        message_type: MessageType,
+        need: usize,
+        got: usize,
+    },
 }
 
 /// `twoStepFlag` — the single most useful bit in the header.
@@ -324,7 +334,11 @@ impl PtpMessage {
             (FLAG_TIME_TRACEABLE, "timeTraceable"),
             (FLAG_FREQUENCY_TRACEABLE, "freqTraceable"),
         ];
-        TABLE.iter().filter(|(bit, _)| self.flags & bit != 0).map(|(_, n)| *n).collect()
+        TABLE
+            .iter()
+            .filter(|(bit, _)| self.flags & bit != 0)
+            .map(|(_, n)| *n)
+            .collect()
     }
 
     /// The interval between messages of this type, in seconds.
@@ -337,7 +351,11 @@ impl PtpMessage {
 
     /// Identity of the sending port, as controllers display it.
     pub fn source_id(&self) -> String {
-        format!("{}/{}", format_clock_id(&self.source_clock_identity), self.source_port_number)
+        format!(
+            "{}/{}",
+            format_clock_id(&self.source_clock_identity),
+            self.source_port_number
+        )
     }
 }
 
@@ -378,7 +396,13 @@ pub fn parse(payload: &[u8], variant: Variant) -> Result<PtpMessage, ParseError>
 
     // correctionField is a 64-bit signed value in nanoseconds scaled by 2^16.
     let correction_raw = i64::from_be_bytes([
-        payload[8], payload[9], payload[10], payload[11], payload[12], payload[13], payload[14],
+        payload[8],
+        payload[9],
+        payload[10],
+        payload[11],
+        payload[12],
+        payload[13],
+        payload[14],
         payload[15],
     ]);
 
@@ -415,7 +439,11 @@ pub fn parse(payload: &[u8], variant: Variant) -> Result<PtpMessage, ParseError>
 
     let need = |n: usize| -> Result<(), ParseError> {
         if body.len() < n {
-            Err(ParseError::ShortBody { message_type, need: n, got: body.len() })
+            Err(ParseError::ShortBody {
+                message_type,
+                need: n,
+                got: body.len(),
+            })
         } else {
             Ok(())
         }
@@ -429,9 +457,7 @@ pub fn parse(payload: &[u8], variant: Variant) -> Result<PtpMessage, ParseError>
             need(10)?;
             msg.timestamp = Some(Timestamp::parse(&body[..10]));
         }
-        MessageType::DelayResp
-        | MessageType::PdelayResp
-        | MessageType::PdelayRespFollowUp => {
+        MessageType::DelayResp | MessageType::PdelayResp | MessageType::PdelayRespFollowUp => {
             need(20)?;
             msg.timestamp = Some(Timestamp::parse(&body[..10]));
             let mut req = [0u8; 8];
@@ -497,7 +523,10 @@ mod tests {
         assert_eq!(m.domain, 0);
         assert!(m.is_two_step(), "Follow_Up should be expected");
         assert!(m.message_type.is_event());
-        assert_eq!(format_clock_id(&m.source_clock_identity), "00:0A:92:FF:FE:01:56:A3");
+        assert_eq!(
+            format_clock_id(&m.source_clock_identity),
+            "00:0A:92:FF:FE:01:56:A3"
+        );
         assert_eq!(m.source_id(), "00:0A:92:FF:FE:01:56:A3/1");
         // -3 -> 2^-3 = 125ms, the standard gPTP Sync rate.
         assert!((m.interval_secs() - 0.125).abs() < 1e-9);
@@ -511,7 +540,10 @@ mod tests {
         let f = header(0x0, 0, 1, 0);
         let mut f2 = f.clone();
         f2.extend_from_slice(&[0u8; 10]);
-        assert_eq!(parse(&f2, Variant::V2Ethernet).unwrap().variant, Variant::V2Ethernet);
+        assert_eq!(
+            parse(&f2, Variant::V2Ethernet).unwrap().variant,
+            Variant::V2Ethernet
+        );
         // ...and a UDP-carried message stays UDP regardless.
         assert_eq!(parse(&f2, Variant::V2Udp).unwrap().variant, Variant::V2Udp);
     }
@@ -533,10 +565,16 @@ mod tests {
 
         let m = parse(&f, Variant::V2Ethernet).unwrap();
         let a = m.announce.expect("announce body");
-        assert_eq!(format_clock_id(&a.grandmaster_identity), "00:0A:92:FF:FE:01:56:A3");
+        assert_eq!(
+            format_clock_id(&a.grandmaster_identity),
+            "00:0A:92:FF:FE:01:56:A3"
+        );
         assert_eq!(a.current_utc_offset, 37);
         assert_eq!(a.grandmaster_quality.class, 6);
-        assert_eq!(a.grandmaster_quality.class_meaning(), "locked to primary reference (e.g. GPS)");
+        assert_eq!(
+            a.grandmaster_quality.class_meaning(),
+            "locked to primary reference (e.g. GPS)"
+        );
         assert_eq!(a.grandmaster_quality.accuracy_meaning(), "100ns");
         assert_eq!(a.time_source_meaning(), "GNSS/GPS");
         // stepsRemoved 0 means this device IS the grandmaster.
@@ -554,7 +592,11 @@ mod tests {
         f[8..16].copy_from_slice(&scaled.to_be_bytes());
         f.extend_from_slice(&[0u8; 10]);
         let m = parse(&f, Variant::Gptp).unwrap();
-        assert!((m.correction_ns - 1500.5).abs() < 0.01, "got {}", m.correction_ns);
+        assert!(
+            (m.correction_ns - 1500.5).abs() < 0.01,
+            "got {}",
+            m.correction_ns
+        );
     }
 
     /// A negative correction is legal and must survive as negative — an
@@ -597,7 +639,10 @@ mod tests {
     /// but only when the identity really is EUI-64 derived.
     #[test]
     fn clock_identity_yields_a_mac_only_when_eui64() {
-        assert_eq!(clock_id_to_mac(&GM), Some([0x00, 0x0A, 0x92, 0x01, 0x56, 0xA3]));
+        assert_eq!(
+            clock_id_to_mac(&GM),
+            Some([0x00, 0x0A, 0x92, 0x01, 0x56, 0xA3])
+        );
         // Not EUI-64: must refuse rather than invent six bytes.
         assert_eq!(clock_id_to_mac(&[0x11; 8]), None);
     }
@@ -607,14 +652,21 @@ mod tests {
         let mut v1 = vec![0u8; 40];
         v1[1] = 0x01; // versionPTP = 1
         assert_eq!(parse(&v1, Variant::V2Udp), Err(ParseError::NotVersion2(1)));
-        assert_eq!(parse(&[0u8; 10], Variant::V2Udp), Err(ParseError::TooShort(10)));
+        assert_eq!(
+            parse(&[0u8; 10], Variant::V2Udp),
+            Err(ParseError::TooShort(10))
+        );
 
         // Header fine, Announce body truncated: must not read past the buffer.
         let mut short = header(0xB, 1, 1, 0);
         short.extend_from_slice(&[0u8; 12]);
         assert!(matches!(
             parse(&short, Variant::Gptp),
-            Err(ParseError::ShortBody { need: 30, got: 12, .. })
+            Err(ParseError::ShortBody {
+                need: 30,
+                got: 12,
+                ..
+            })
         ));
     }
 

@@ -90,7 +90,8 @@ pub fn self_test(depth: Depth) -> Report {
         "the_parser_refuses_a_runt",
         Depth::Own,
         "a 4-byte payload is an error, not a message",
-        if crate::message::parse(&[0x00, 0x02, 0x00, 0x2C], crate::message::Variant::V2Udp).is_err() {
+        if crate::message::parse(&[0x00, 0x02, 0x00, 0x2C], crate::message::Variant::V2Udp).is_err()
+        {
             Ok(())
         } else {
             Err("a 4-byte payload parsed as a PTP message")
