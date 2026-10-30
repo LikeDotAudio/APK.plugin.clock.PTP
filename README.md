@@ -2,6 +2,8 @@
 
 PTP v1 + v2 + gPTP listener, one container — and `ptp-monitor`, the hand tool beside it.
 
+**Wiki:** [Documentation/README.md](Documentation/README.md) — principles, architecture and delivery, each checked against the code.
+
 | | |
 |---|---|
 | **Recipe** | `Docker/docker-compose.yml` — no Dockerfile: it runs a binary from the shared plugin image built by `PODS/POD.THICK/DISCOVERY.Engine/Docker/Dockerfile`, extending `plugin-host` in `DISCOVERY.Engine/Docker/plugin-base.yml` |
