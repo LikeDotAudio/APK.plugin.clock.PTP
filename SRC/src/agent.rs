@@ -264,7 +264,15 @@ pub fn run_listen_agent(mqtt_host: &str, mqtt_port: u16) {
                 restate(&mqtt_client, &state_publications);
             }
         },
-        || false,
+        // THE STALL WATCHDOG (LOOSE-plugins-playstation-printers-ptp). Asked on
+        // every pass of the capture loop, which turns at least every 200 ms
+        // (each socket's read timeout) on a silent network, so a loop that
+        // wedges without returning is an exit the container restarts
+        // (APK_PLUGIN_STALL_SECS).
+        || {
+            apk_plugin_runner::tick();
+            false
+        },
     );
 }
 

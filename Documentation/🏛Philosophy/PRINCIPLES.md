@@ -18,7 +18,8 @@ rules live in the root: [Refusal over fabrication](../../../../../../Documentati
 
 ## Where the code bends a rule
 
-* **Stall watchdog.** `run_listen_agent` does not call `apk_plugin_runner::tick()`; a capture loop
-  that wedges without returning is not detected.
+* **Stall watchdog.** The capture loop calls `apk_plugin_runner::tick()` on every pass (at least every
+  200 ms, the sockets' read timeout), so a loop that wedges without returning is an exit after
+  `APK_PLUGIN_STALL_SECS`.
 * **Declared config is read config.** `domain = 0` in [`SRC/config.ini`](../../SRC/config.ini) is read
   by nothing; the agent hears every domain.
