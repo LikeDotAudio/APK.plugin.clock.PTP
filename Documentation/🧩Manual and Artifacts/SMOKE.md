@@ -4,7 +4,7 @@ Is `PLUGIN.PTP` deployed? Written by `.apk.scripts/smoke.py` from the module's o
 
 ← [Wiki home](../README.md)
 
-**✅ PASS** — 2/2 checks, since 2026-10-30 12:50 EDT
+**✅ PASS** — 2/2 checks, since 2026-10-30 12:51 EDT
 
 | Check | Target | Result | Detail |
 |---|---|---|---|
@@ -13,4 +13,4 @@ Is `PLUGIN.PTP` deployed? Written by `.apk.scripts/smoke.py` from the module's o
 
 Re-run: `python3 .apk.scripts/smoke.py PODS/POD.THICK/PLUGINS/PLUGIN.PTP`
 
-<!-- smoke:sig 3c4ac4f89baf since 2026-10-30 12:50 EDT -->
+<!-- smoke:sig 6c9f39e4d982 since 2026-10-30 12:51 EDT -->
