@@ -140,6 +140,31 @@ where
     F: FnMut(Observation),
     S: Fn() -> bool,
 {
+    run_paced(
+        transports,
+        tracker,
+        |obs| {
+            if let Some(obs) = obs {
+                on(obs)
+            }
+        },
+        should_stop,
+    )
+}
+
+/// The capture loop with a pulse: `on(Some(obs))` for every observation, and
+/// `on(None)` once at the end of every pass, packets or not.
+///
+/// A pass turns at least every 200 ms (each socket's read timeout), so the
+/// `None` call is the one place periodic work can live that still runs when
+/// every PTP packet has stopped. Work driven only by `Some` stops with the
+/// traffic — and "all traffic stopped" is exactly when a silent grandmaster
+/// has to be retired (LOOSE-plugin-ptp-in-agentrs-the).
+pub fn run_paced<F, S>(transports: &Transports, tracker: &mut FlowTracker, mut on: F, should_stop: S)
+where
+    F: FnMut(Option<Observation>),
+    S: Fn() -> bool,
+{
     let mut buf = vec![0u8; 2048];
     let name_of = |i: u32| transports.interface_name(i);
 
@@ -149,16 +174,18 @@ where
         for sock in &transports.udp {
             if let Ok(Some(cap)) = sock.recv(&mut buf) {
                 idle = false;
-                on(classify(&cap, tracker, Instant::now(), SystemTime::now()));
+                on(Some(classify(&cap, tracker, Instant::now(), SystemTime::now())));
             }
         }
 
         if let Some(l2) = &transports.l2 {
             if let Ok(Some(cap)) = l2.recv(&mut buf, &name_of) {
                 idle = false;
-                on(classify(&cap, tracker, Instant::now(), SystemTime::now()));
+                on(Some(classify(&cap, tracker, Instant::now(), SystemTime::now())));
             }
         }
+
+        on(None);
 
         if idle {
             // Every socket has a 200ms read timeout, so an idle pass has
@@ -446,6 +473,29 @@ mod tests {
     }
 
     /// v1 and v2 arriving on the same socket must be told apart by content.
+    #[test]
+    fn a_pass_with_no_packets_still_pulses() {
+        // No transport at all: nothing can arrive, and the pulse must still
+        // come, once per pass, or a heartbeat hung off it dies with the traffic.
+        let transports = Transports { udp: vec![], l2: None, interfaces: vec![], problems: vec![] };
+        let mut tracker = FlowTracker::default();
+        let passes = std::cell::Cell::new(0);
+        let (mut pulses, mut observations) = (0, 0);
+        run_paced(
+            &transports,
+            &mut tracker,
+            |obs| match obs {
+                None => pulses += 1,
+                Some(_) => observations += 1,
+            },
+            || {
+                passes.set(passes.get() + 1);
+                passes.get() > 3
+            },
+        );
+        assert_eq!((pulses, observations), (3, 0));
+    }
+
     #[test]
     fn classify_routes_v1_and_v2_from_the_same_transport() {
         let mut tracker = FlowTracker::default();

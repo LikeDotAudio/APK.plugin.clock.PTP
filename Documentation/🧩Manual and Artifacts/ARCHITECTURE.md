@@ -36,9 +36,10 @@ COMPOSE_PROFILES=l2 docker compose -f PODS/POD.THICK/PLUGINS/PLUGIN.PTP/Docker/d
 ## Data flow
 
 1. `net.rs` opens every transport it can; what it cannot open becomes the `partial` detail.
-2. `monitor::run` reads frames, `classify` decodes them, `FlowTracker` links each to its partner and
+2. `monitor::run_paced` reads frames (the agent; `ptp-monitor` uses `monitor::run`), `classify` decodes them, `FlowTracker` links each to its partner and
    `Diagnostics` folds them into per-port verdicts; `ClockTable` keeps the last word from each clock.
-3. `agent::flush` runs 10 s after start and every 30 s: drop clocks silent for 30 s (`gone` to
+3. `agent::flush` runs 10 s after start and every 30 s, timed off the capture loop's per-pass pulse
+   (every ≤ 200 ms), not off packets, so it still runs when all PTP traffic stops: drop clocks silent for 30 s (`gone` to
    presence), then publish every live clock's 22 `CLOCK_KEYS` at
    `APK.audio/System/Protocols/ptp/Device/{clock_id}-{port}-d{domain}/{key}`, `seen` to presence,
    the counters to `APK.audio/System/Counters/apkaudio-ptp` and the `Agent/udp_blocked` verdict.

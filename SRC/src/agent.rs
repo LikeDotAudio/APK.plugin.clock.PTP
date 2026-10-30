@@ -226,29 +226,35 @@ pub fn run_listen_agent(mqtt_host: &str, mqtt_port: u16) {
     counters.declare("reelections");
     counters.declare("grandmasterClassChanges");
 
-    crate::monitor::run(
+    // `run_paced`, not `run`: the heartbeat below must turn when every PTP
+    // packet has stopped, which is the case its grandmaster sweep exists for
+    // (LOOSE-plugin-ptp-in-agentrs-the). `None` is the per-pass pulse, at
+    // least every 200 ms; `Some` is a packet.
+    crate::monitor::run_paced(
         &transports,
         &mut tracker,
         |obs| {
-            match &obs {
-                Observation::V2(_, _, meta) | Observation::V1(_, meta) => {
-                    if meta.port.is_some() { counters.inc("udpSeen") } else { counters.inc("l2Seen") }
+            if let Some(obs) = &obs {
+                match obs {
+                    Observation::V2(_, _, meta) | Observation::V1(_, meta) => {
+                        if meta.port.is_some() { counters.inc("udpSeen") } else { counters.inc("l2Seen") }
+                    }
+                    Observation::Undecodable { .. } => {}
                 }
-                Observation::Undecodable { .. } => {}
-            }
-            match &obs {
-                Observation::V2(msg, _, meta) => {
-                    table.record(msg, meta);
-                    diagnostics.observe(msg, meta);
+                match obs {
+                    Observation::V2(msg, _, meta) => {
+                        table.record(msg, meta);
+                        diagnostics.observe(msg, meta);
+                    }
+                    // PTPv1 is recorded too, widened onto the same 64-bit identity
+                    // via the EUI-64 convention. Counting it but not recording it
+                    // (which this did) made a live v1 device invisible in the tab
+                    // while the agent cheerfully reported it was listening.
+                    Observation::V1(msg, meta) => {
+                        table.record_v1(msg, meta);
+                    }
+                    Observation::Undecodable { .. } => {}
                 }
-                // PTPv1 is recorded too, widened onto the same 64-bit identity
-                // via the EUI-64 convention. Counting it but not recording it
-                // (which this did) made a live v1 device invisible in the tab
-                // while the agent cheerfully reported it was listening.
-                Observation::V1(msg, meta) => {
-                    table.record_v1(msg, meta);
-                }
-                Observation::Undecodable { .. } => {}
             }
 
             if last_flush.elapsed() >= HEARTBEAT {
