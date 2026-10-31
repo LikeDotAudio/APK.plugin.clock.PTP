@@ -30,6 +30,7 @@ root.
 * `ptp-monitor` is built into the image (`/usr/local/bin`) but has no file capabilities there; run by hand it needs `sudo` or `setcap cap_net_raw,cap_net_bind_service+eip`.
 
 ## Delivered from the 2026-10-30 audit
+- **Release tag `ptp-v0.1.0`** — pushed 2026-10-31 with the owner's go-ahead.
 
 PLUGIN.PTP is one plugin (`Plugin-PTP`) in the shared plugin image. Verified with
 `cargo test -p apkaudio-ptp` in the DISCOVERY.Engine workspace (85 passed incl. the rustfmt test;
