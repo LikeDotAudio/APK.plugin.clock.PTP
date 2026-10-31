@@ -33,4 +33,6 @@ Score key: 3 meets the standard · 2 minor gaps · 1 significant gaps · 0 absen
 2. GOOD — counters and agent state go through `apkaudio_contracts::agent_counters` / `agent_state`, presence through `apk_plugin_runner::presence`, and every publish through `apk_plugin_runner::unkept` ([SRC/src/agent.rs](../../SRC/src/agent.rs)).
 3. Needs owner — tag this crate's releases (crate `0.1.0`, no tags), and publish the next SDK tag so a standalone build sees the runner's `session`/`unkept` and `plugin-volumes.yml`; push PLUGIN.RAVENNA so the pinned `rev` resolves standalone.
 
+- **Needs owner — `maclookup-v0.2.0`.** `apkaudio-maclookup` stays on `rev = "7ba39dd…"` until the owner pushes LIB.MAC_LOOKUP and publishes that tag; then repin (W03 handoff). Workspace builds get the new `Mac` API through the engine `[patch]` today.
+
 Delivered items are recorded in [🌍Publishing/DELIVERY.md](../%F0%9F%8C%8DPublishing/DELIVERY.md#delivered-from-the-2026-10-30-audit).
