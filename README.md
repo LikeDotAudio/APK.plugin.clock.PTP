@@ -25,8 +25,8 @@ Listens on UDP 319/320 and raw Ethernet at once (`src/net.rs`), decodes PTPv1
 exchanges they form — Sync ↔ Follow_Up, Delay_Req ↔ Delay_Resp, the peer-delay
 chain (`src/flow.rs`) — and reads three diagnostics: offset from master,
 arrival jitter and BMCA election (`src/diagnostics/`). The clock table
-(`src/monitor.rs`) is flushed to the bus 10 s after start and then every 30 s
-(`src/agent.rs`); a clock not heard for 30 s (`CLOCK_TIMEOUT`) is dropped and
+(`src/monitor.rs`) is flushed to the bus 10 s after start (`first_flush_s`) and then every 30 s
+(`heartbeat_s`, `src/agent.rs`); a clock not heard for 30 s (`clock_timeout_s`) is dropped and
 its presence goes inactive.
 
 ```
@@ -125,7 +125,7 @@ COMPOSE_PROFILES=l2 docker compose -f PODS/POD.THICK/PLUGINS/PLUGIN.PTP/Docker/d
   whole picture restated, presence the one retained witness of departure
   (`src/agent.rs` header, `say`, `nothing_this_agent_publishes_is_kept`).
 - **Unreachable is dead.** A clock silent for 30 s leaves the table and its
-  presence goes inactive (`CLOCK_TIMEOUT`, `src/agent.rs`).
+  presence goes inactive (`clock_timeout_s` in `config.ini`, `src/agent.rs`).
 - **A verdict, not a firehose.** `sync_health` is one word that changes when the
   health does; the numbers are a document you ask `ptp-monitor --json` for
   (`CLOCK_KEYS`).

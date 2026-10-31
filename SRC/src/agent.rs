@@ -16,7 +16,7 @@
 //! correct when the broker holds the last value and wrong when it does not —
 //! it would announce a stable clock once and leave it invisible to every
 //! subscriber that connected afterwards. So the whole picture goes out every
-//! HEARTBEAT and a subscriber is never more than that far behind. Consumers
+//! heartbeat (`heartbeat_s`) and a subscriber is never more than that far behind. Consumers
 //! that used to read this tree while the agent was down now read nothing,
 //! which is the point.
 //!
@@ -84,9 +84,72 @@ pub const CLOCK_KEYS: [&str; 22] = [
     "online_since",
 ];
 
-/// How often the whole picture is republished. Nothing is retained, so this
-/// is not a refresh of a stored value — it is the only time a value exists.
-const HEARTBEAT: Duration = Duration::from_secs(30);
+/// What `config.ini`'s `[ptp]` section tunes, read once at start (RP-14:
+/// intervals are config, not source).
+///
+/// * `heartbeat` (`heartbeat_s`) — how often the whole picture is republished.
+///   Nothing is retained, so this is not a refresh of a stored value — it is
+///   the only time a value exists. It is also the `intervalMs` every
+///   `AgentCounters` sample declares, derived from the same field so a
+///   declared interval the agent does not keep cannot happen.
+/// * `first_flush` (`first_flush_s`) — delay before the FIRST flush. Shorter
+///   than the heartbeat so a launcher checking whether discovery works does
+///   not have to wait a whole heartbeat for the first evidence. Long enough
+///   that the counters mean something: PTP Sync runs at 1-8/s, so ten seconds
+///   is hundreds of chances to have heard one.
+/// * `clock_timeout` (`clock_timeout_s`) — drop a clock that has gone quiet
+///   for this long. PTP is continuous by nature: a healthy clock is never
+///   silent for 30 s at any standard rate, so silence means gone, not idle.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Settings {
+    pub heartbeat: Duration,
+    pub first_flush: Duration,
+    pub clock_timeout: Duration,
+}
+
+impl Settings {
+    /// Every key is required, in whole seconds above zero, and a missing or
+    /// wrong one is NAMED rather than defaulted: a guessed interval is a
+    /// silent one. `first_flush_s` may not exceed `heartbeat_s`.
+    pub fn from_ini(text: &str) -> Result<Settings, String> {
+        let config = apk_plugin_runner::ini_to_json(text);
+        let section = config
+            .get(crate::self_test::MODULE)
+            .ok_or_else(|| format!("config.ini has no [{}] section", crate::self_test::MODULE))?;
+        let seconds = |key: &str| -> Result<Duration, String> {
+            let raw = section
+                .get(key)
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| format!("config.ini declares no {key}"))?;
+            let n: u64 = raw
+                .parse()
+                .map_err(|_| format!("{key} = {raw} is not whole seconds"))?;
+            if n == 0 {
+                return Err(format!("{key} = 0 is not an interval"));
+            }
+            Ok(Duration::from_secs(n))
+        };
+        let settings = Settings {
+            heartbeat: seconds("heartbeat_s")?,
+            first_flush: seconds("first_flush_s")?,
+            clock_timeout: seconds("clock_timeout_s")?,
+        };
+        if settings.first_flush > settings.heartbeat {
+            return Err(
+                "first_flush_s is above heartbeat_s: the first flush would come late".into(),
+            );
+        }
+        Ok(settings)
+    }
+}
+
+/// One clock port's prefix, from the contract's `protocols` builder rather
+/// than spelled here (RP-07). `seg` is built only from `sanitize_segment`
+/// output, digits and `-`, so the contract's refusal is unreachable.
+fn device_prefix(seg: &str) -> String {
+    apkaudio_contracts::topics::protocols(crate::self_test::MODULE, &["Device", seg])
+        .expect("a clock's topic segment is sanitized, so always a segment")
+}
 
 /// Every publish this agent makes: at most once, never retained, never stored.
 ///
@@ -102,28 +165,16 @@ fn say(mqtt_client: &rumqttc::Client, topic: impl Into<String>, payload: impl In
     );
 }
 
-/// The same cadence as `HEARTBEAT`, declared in every `AgentCounters` payload
-/// so a consumer can tell a missing sample from an idle agent. Derived from
-/// the constant rather than typed again — a declared interval the agent does
-/// not keep is the one way that field can lie.
-const HEARTBEAT_MS: u64 = HEARTBEAT.as_millis() as u64;
-
-/// Delay before the FIRST flush.
-///
-/// Shorter than the heartbeat so a launcher checking whether discovery works
-/// does not have to wait half a minute for the first evidence. Long enough that
-/// the counters mean something: PTP Sync runs at 1-8/s, so ten seconds is
-/// hundreds of chances to have heard one.
-const FIRST_FLUSH: Duration = Duration::from_secs(10);
-
-/// Drop a clock that has gone quiet for this long.
-///
-/// PTP is continuous by nature: a healthy clock is never silent for 30s at any
-/// standard rate. Silence therefore means gone, not idle.
-const CLOCK_TIMEOUT: Duration = Duration::from_secs(30);
-
 /// Blocking listen loop — run on a dedicated thread.
 pub fn run_listen_agent(mqtt_host: &str, mqtt_port: u16) {
+    let settings = match Settings::from_ini(crate::self_test::CONFIG_INI) {
+        Ok(s) => s,
+        Err(why) => {
+            // The compiled-in file is wrong: a build defect, said once, loudly.
+            eprintln!("🛑 [PTP] {why}");
+            return;
+        }
+    };
     let mut opts = rumqttc::MqttOptions::new("apkaudio-ptp", mqtt_host, mqtt_port);
     opts.set_keep_alive(Duration::from_secs(30));
     if let Some((username, password)) = apkaudio_contracts::broker_auth::credentials() {
@@ -203,9 +254,9 @@ pub fn run_listen_agent(mqtt_host: &str, mqtt_port: u16) {
     // deliberately so: presence is the runner's contract, shared with every
     // other plugin, and it is what says a clock has gone rather than merely
     // stopped being restated.
-    // Start the clock in the past so the first flush lands at FIRST_FLUSH.
+    // Start the clock in the past so the first flush lands at first_flush_s.
     let mut last_flush = Instant::now()
-        .checked_sub(HEARTBEAT - FIRST_FLUSH)
+        .checked_sub(settings.heartbeat - settings.first_flush)
         .unwrap_or_else(Instant::now);
 
     // Reception counters, split by transport, published as AgentCounters
@@ -220,8 +271,12 @@ pub fn run_listen_agent(mqtt_host: &str, mqtt_port: u16) {
     // counter that only appears once it is non-zero makes "no PTP on this
     // network yet" look identical to "this agent does not count that".
     let started_at_ms = unix_ms_now();
-    let mut counters = Sampler::new("apkaudio-ptp", started_at_ms, HEARTBEAT_MS)
-        .expect("apkaudio-ptp is a valid topic segment");
+    let mut counters = Sampler::new(
+        "apkaudio-ptp",
+        started_at_ms,
+        settings.heartbeat.as_millis() as u64,
+    )
+    .expect("apkaudio-ptp is a valid topic segment");
     counters.declare("udpSeen");
     counters.declare("l2Seen");
     // The synchronization faults, as counts rather than as levels. A lost Sync
@@ -268,7 +323,7 @@ pub fn run_listen_agent(mqtt_host: &str, mqtt_port: u16) {
                 }
             }
 
-            if last_flush.elapsed() >= HEARTBEAT {
+            if last_flush.elapsed() >= settings.heartbeat {
                 last_flush = Instant::now();
                 // A grandmaster that fell silent is a state change no packet
                 // announces. Without this sweep the dead master stays elected
@@ -280,6 +335,7 @@ pub fn run_listen_agent(mqtt_host: &str, mqtt_port: u16) {
                     &mut spells,
                     &vendors,
                     &diagnostics,
+                    settings.clock_timeout,
                 );
                 diagnostics.retain_ports(|key| table.clocks.contains_key(key));
                 count_faults(&mut counters, &mut reported, diagnostics.totals());
@@ -306,6 +362,7 @@ fn flush(
     spells: &mut std::collections::HashMap<String, u64>,
     vendors: &apkaudio_maclookup::MacVendors,
     diagnostics: &Diagnostics,
+    clock_timeout: Duration,
 ) {
     let now = Instant::now();
     let now_secs = std::time::SystemTime::now()
@@ -316,13 +373,13 @@ fn flush(
     let mut live = std::collections::HashSet::new();
 
     for clock in table.clocks.values() {
-        if now.saturating_duration_since(clock.last_seen) > CLOCK_TIMEOUT {
+        if now.saturating_duration_since(clock.last_seen) > clock_timeout {
             continue;
         }
         let id_seg = sanitize_segment(&format_clock_id(&clock.key.clock_identity));
         let topic_seg = format!("{id_seg}-{}-d{}", clock.key.port_number, clock.domain);
         live.insert(topic_seg.clone());
-        let prefix = format!("APK.audio/System/Protocols/ptp/Device/{topic_seg}");
+        let prefix = device_prefix(&topic_seg);
 
         // First heartbeat for this segment starts the spell; the stale sweep
         // below drops the entry, so a clock that goes away and comes back gets
@@ -459,15 +516,13 @@ fn flush(
         println!("   ⌛ [PTP] {seg} stopped announcing — dropped");
         // `topic_seg` IS the serial, so the id follows from the stale segment.
         apk_plugin_runner::presence::gone(&format!("ptp:{seg}"));
-        apk_plugin_runner::presence::unlink(&format!(
-            "APK.audio/System/Protocols/ptp/Device/{seg}"
-        ));
+        apk_plugin_runner::presence::unlink(&device_prefix(&seg));
         spells.remove(&seg);
     }
 
     table
         .clocks
-        .retain(|_, c| now.saturating_duration_since(c.last_seen) <= CLOCK_TIMEOUT);
+        .retain(|_, c| now.saturating_duration_since(c.last_seen) <= clock_timeout);
 }
 
 /// Turn the diagnostics' running totals into counter increments.
@@ -513,7 +568,7 @@ fn count_faults(counters: &mut Sampler, reported: &mut Totals, now: Totals) {
 /// was down, and it is not any more: under the unkept policy at the top of
 /// this file a firewall verdict from a dead agent is exactly the stale answer
 /// the policy exists to refuse. It is restated every heartbeat instead, so
-/// those four consumers see it within one HEARTBEAT of subscribing and see
+/// those four consumers see it within one heartbeat of subscribing and see
 /// nothing at all once the agent stops — which is the honest reading of "this
 /// host's firewall state is currently unknown".
 fn report_reception(mqtt_client: &rumqttc::Client, counters: &Sampler, udp_open: bool) {
@@ -529,11 +584,10 @@ fn report_reception(mqtt_client: &rumqttc::Client, counters: &Sampler, udp_open:
     let udp = counters.get("udpSeen");
     let l2 = counters.get("l2Seen");
     let blocked = udp_open && udp == 0 && l2 > 0;
-    say(
-        mqtt_client,
-        "APK.audio/System/Protocols/ptp/Agent/udp_blocked",
-        blocked.to_string().into_bytes(),
-    );
+    match apkaudio_contracts::agent_state::agent_topic(crate::self_test::MODULE, "udp_blocked") {
+        Ok(topic) => say(mqtt_client, topic, blocked.to_string().into_bytes()),
+        Err(e) => eprintln!("⚠️  [PTP] udp_blocked not published: {e}"),
+    }
 }
 
 /// Wall-clock now, in Unix milliseconds. `AgentCounters` timestamps are the
@@ -633,6 +687,53 @@ mod tests {
                 "{kept} would queue this agent's messages for absent subscribers"
             );
         }
+    }
+
+    /// RP-07: every topic here comes from a contract builder.
+    #[test]
+    fn device_and_agent_topics_are_the_contracts() {
+        assert_eq!(
+            device_prefix("x-1-d0"),
+            "APK.audio/System/Protocols/ptp/Device/x-1-d0"
+        );
+        assert_eq!(
+            device_prefix("00_07_F5_FF_FE_00_54_72-1-d0"),
+            apkaudio_contracts::topics::protocols(
+                "ptp",
+                &["Device", "00_07_F5_FF_FE_00_54_72-1-d0"]
+            )
+            .unwrap()
+        );
+        assert_eq!(
+            apkaudio_contracts::agent_state::agent_topic("ptp", "udp_blocked").unwrap(),
+            "APK.audio/System/Protocols/ptp/Agent/udp_blocked"
+        );
+    }
+
+    /// RP-14: the cadence and the drop timeout are config, and a bad value is named.
+    #[test]
+    fn intervals_come_from_config_ini() {
+        let s = Settings::from_ini(crate::self_test::CONFIG_INI)
+            .expect("config.ini is a complete [ptp]");
+        assert_eq!(s.heartbeat, Duration::from_secs(30));
+        assert_eq!(s.first_flush, Duration::from_secs(10));
+        assert_eq!(s.clock_timeout, Duration::from_secs(30));
+        let ok = "[ptp]\nheartbeat_s = 30\nfirst_flush_s = 10\nclock_timeout_s = 30\n";
+        assert!(Settings::from_ini(ok).is_ok());
+        assert!(
+            Settings::from_ini(&ok.replace("clock_timeout_s = 30\n", ""))
+                .unwrap_err()
+                .contains("clock_timeout_s")
+        );
+        assert!(
+            Settings::from_ini(&ok.replace("heartbeat_s = 30", "heartbeat_s = soon"))
+                .unwrap_err()
+                .contains("heartbeat_s")
+        );
+        assert!(Settings::from_ini(&ok.replace("heartbeat_s = 30", "heartbeat_s = 0")).is_err());
+        assert!(
+            Settings::from_ini(&ok.replace("first_flush_s = 10", "first_flush_s = 60")).is_err()
+        );
     }
 
     #[test]
