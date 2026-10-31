@@ -39,7 +39,9 @@ use apk_plugin_runner::unkept::{publications_of, report, restate, say};
 use apkaudio_contracts::agent_counters::Sampler;
 use apkaudio_contracts::agent_state::AgentReport;
 use apkaudio_contracts::device_publish::Sighting;
-use apkaudio_contracts::device_record::DeviceRecordStatus;
+use apkaudio_contracts::device_record::{
+    DeviceRecordExtra, DeviceRecordExtraPtp, DeviceRecordStatus,
+};
 use apkaudio_contracts::presence;
 use apkaudio_contracts::topics::sanitize_segment;
 use std::time::{Duration, Instant};
@@ -155,12 +157,19 @@ fn device_prefix(seg: &str) -> String {
 
 /// One clock port as a presence sighting: identity = the clock identity plus
 /// port and domain (`topic_seg`, the Device tree's key), never an address.
+///
+/// `ptp` is the record's `extra.ptp` (ROAD-3437 step 3): the engine builds
+/// its PTP table from `Discovery/ptp/{id}/record` and reads the clock
+/// identity, domain, port and message-type set from it instead of the
+/// `clock_id` / `domain` / `port` / `messages` leaves. Nothing in it moves per
+/// heartbeat, so a steady clock never rewrites its record.
 fn clock_sighting(
     topic_seg: &str,
     clock_id: &str,
     vendor: &str,
     grandmaster: bool,
     notes: &str,
+    ptp: DeviceRecordExtraPtp,
 ) -> Sighting {
     Sighting::new("ptp", topic_seg)
         .class("Clock")
@@ -176,6 +185,22 @@ fn clock_sighting(
         .raw_idn(clock_id)
         .notes(notes)
         .status(DeviceRecordStatus::Identified)
+        .extra(DeviceRecordExtra {
+            ptp: Some(ptp),
+            ..Default::default()
+        })
+}
+
+/// The `extra.ptp` of one clock port: the exact `clock_id` leaf string, its
+/// domain, its port number (the `port` leaf as an integer), and the sorted
+/// set of message types heard from it.
+fn clock_extra(clock_id: &str, clock: &crate::monitor::ClockRecord) -> DeviceRecordExtraPtp {
+    DeviceRecordExtraPtp {
+        clock_identity: clock_id.to_string(),
+        domain: clock.domain,
+        port: Some(i64::from(clock.key.port_number)),
+        message_types: clock.message_types(),
+    }
 }
 
 // Every publish this agent makes goes through `apk_plugin_runner::unkept`:
@@ -490,7 +515,10 @@ fn flush(
                     .map(|s| s.to_string())
                     .unwrap_or_else(dash)
             ),
+            clock_extra(&clock_id, clock),
         );
+        // Every heartbeat (heartbeat_s), for every live clock: the re-sighting
+        // that keeps the engine's `…/verified` proof fresh.
         apk_plugin_runner::presence::seen(&sighting, Some(&prefix));
 
         // EVERY attribute, EVERY heartbeat. There is no dedupe here and there
@@ -666,6 +694,12 @@ mod tests {
             "Bridgeco Co AG",
             true,
             "domain 0, port 1, 0 steps removed",
+            DeviceRecordExtraPtp {
+                clock_identity: "00:07:F5:FF:FE:00:54:72".into(),
+                domain: 0,
+                port: Some(1),
+                message_types: vec!["Announce".into(), "Sync".into()],
+            },
         )
         .record(1_700_000_000_000)
         .expect("a clock sighting is a valid record");
@@ -703,6 +737,53 @@ mod tests {
                 "{key} is not a DeviceRecord property"
             );
         }
+    }
+
+    /// ROAD-3437 step 3: the clock's record carries `extra.ptp` — the exact
+    /// `clock_id` leaf, the domain, the port number and the SET of message
+    /// types (no counts, so a steady clock's record never ticks).
+    #[test]
+    fn the_clock_extra_is_what_the_engine_reads_instead_of_the_leaves() {
+        use crate::message::{Variant, parse};
+        use crate::monitor::{ClockTable, Meta};
+        let clock = [0x00, 0x07, 0xF5, 0xFF, 0xFE, 0x00, 0x54, 0x72];
+        let mut p = vec![0u8; 34];
+        p[0] = 0xB; // Announce
+        p[1] = 0x02;
+        p[4] = 3; // domain
+        p[20..28].copy_from_slice(&clock);
+        p[28..30].copy_from_slice(&2u16.to_be_bytes()); // port number
+        p.extend_from_slice(&[0u8; 30]);
+        let msg = parse(&p, Variant::V2Ethernet).unwrap();
+        let meta = || Meta {
+            source: "00:07:F5:00:54:72".into(),
+            port: None,
+            interface: "eth0".into(),
+            at: Instant::now(),
+            wall: std::time::SystemTime::now(),
+        };
+        let mut table = ClockTable::default();
+        table.record(&msg, &meta());
+        table.record(&msg, &meta());
+        let rec = table.clocks.values().next().expect("one clock port");
+        let clock_id = format_clock_id(&rec.key.clock_identity);
+        let extra = clock_extra(&clock_id, rec);
+        assert_eq!(
+            extra.clock_identity, clock_id,
+            "the exact clock_id leaf string"
+        );
+        assert_eq!(extra.clock_identity, "00:07:F5:FF:FE:00:54:72");
+        assert_eq!(extra.domain, 3);
+        assert_eq!(extra.port, Some(2), "the port leaf, as an integer");
+        assert_eq!(
+            extra.message_types,
+            vec!["Announce".to_string()],
+            "the set, not the counts"
+        );
+        let record = clock_sighting("seg", &clock_id, "-", false, "n", extra.clone())
+            .record(1)
+            .unwrap();
+        assert_eq!(record.extra.and_then(|e| e.ptp), Some(extra));
     }
 
     /// RP-07: every topic here comes from a contract builder.

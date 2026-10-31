@@ -295,6 +295,17 @@ impl ClockRecord {
             .collect::<Vec<_>>()
             .join(", ")
     }
+
+    /// The NAMES of the message types heard from this port, sorted — the set,
+    /// not the counts. What the port's `DeviceRecord` carries
+    /// (`extra.ptp.messageTypes`): the counts move every packet and would
+    /// rewrite the record on every heartbeat; the set changes only when the
+    /// port starts or stops speaking a kind of message.
+    pub fn message_types(&self) -> Vec<String> {
+        let mut names: Vec<String> = self.message_counts.keys().map(|k| k.to_string()).collect();
+        names.sort();
+        names
+    }
 }
 
 /// Accumulates per-port state from the observation stream.
@@ -515,6 +526,11 @@ mod tests {
         }
         let rec = &table.clocks[&PortKey::of(&announce(GM, GM, 0, 0))];
         assert_eq!(rec.message_summary(), "Announce ×3");
+        assert_eq!(
+            rec.message_types(),
+            vec!["Announce".to_string()],
+            "the set, not the count"
+        );
     }
 
     /// v1 and v2 arriving on the same socket must be told apart by content.
