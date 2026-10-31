@@ -28,6 +28,10 @@ services:
     # WHAT THIS IS, said by the container itself (PLAN-3409.01): DockTor reads
     # these with docker inspect, so its purpose and endpoint panes keep no list.
     labels:
+      # HOW THE DISCOVERY ENGINE RAISES IT (ROAD-3437 step 3A): its launch table
+      # is these two labels, equal to config.ini [ptp] raise/serves (check.sh raise-labels).
+      audio.apk.raise: "always-on"
+      audio.apk.serves: "ptp"
       audio.apk.purpose: "PTP v1, v2 and gPTP listener"
       audio.apk.purpose.what: "apk-ptp on host networking with NET_RAW and NET_BIND_SERVICE, listening to PTP on 319/320 and gPTP at Layer 2, and publishing the clocks and grandmaster it hears."
       audio.apk.purpose.why: "Every AES67, Dante and AVB stream depends on a shared clock. This is how the bench sees who is grandmaster and which domain each device follows; it is the other of the two raw-capability containers."
