@@ -10,6 +10,10 @@ edition = "2024"
 apk-plugin-runner = { git = "https://github.com/LikeDotAudio/APK.plugin.SDK", tag = "sdk-v0.5" }
 apkaudio-contracts = { git = "https://github.com/LikeDotAudio/APK.plugin.SDK", tag = "sdk-v0.5" }
 libc = "0.2"
+# The PTPv2 / gPTP message parser is the shared AoIP reader in apkaudio-ravenna
+# (`ptp`), the same code PLUGIN.AES67's slave follows a grandmaster with.
+# `default-features = false` takes the readers only — no mDNS, no agent.
+apkaudio-ravenna = { git = "https://github.com/LikeDotAudio/APK.plugin.discovery.RAVENNA", rev = "2695d405016ad408488a155cc28299096f188ec6", default-features = false }
 socket2 = "0.6"
 rumqttc = "0.24"
 
@@ -18,11 +22,14 @@ rumqttc = "0.24"
 # resolves from a capture thread.
 apkaudio-maclookup = { git = "https://github.com/LikeDotAudio/APK.plugin.protocol.MAC_LOOKUP", rev = "7ba39dd001fea80828ac310280fc3b4b5c180cb3" }
 
-parking_lot = { version = "0.12", optional = true }
-pyo3 = { version = "0.21.2", optional = true }
+# No `python` feature: the pyo3 shims `clock`/`parser` (oa_ptp_clock_rs /
+# oa_ptp_parser_rs before PLAN-130.16) had no consumer anywhere in the monorepo
+# and a second, private PTP parser; they were dropped by the 2026-10-30 audit.
+# Their source is in this repository's history (before that commit).
 
-[features]
-python = ["dep:pyo3", "dep:parking_lot"]
+[dev-dependencies]
+# The presence-document contract test reads DeviceRecord as JSON.
+serde_json = "1"
 
 [[bin]]
 name = "ptp-monitor"

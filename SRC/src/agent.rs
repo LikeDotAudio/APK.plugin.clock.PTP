@@ -34,12 +34,14 @@ use crate::diagnostics::{Diagnostics, Totals};
 use crate::flow::FlowTracker;
 use crate::message::{ClockQuality, format_clock_id, time_source_meaning};
 use crate::monitor::{ClockTable, Observation, Transports};
+use apk_plugin_runner::session::Session;
+use apk_plugin_runner::unkept::{publications_of, report, restate, say};
 use apkaudio_contracts::agent_counters::Sampler;
 use apkaudio_contracts::agent_state::AgentReport;
 use apkaudio_contracts::device_publish::Sighting;
 use apkaudio_contracts::device_record::DeviceRecordStatus;
 use apkaudio_contracts::presence;
-use apkaudio_contracts::topics::{TopicError, sanitize_segment};
+use apkaudio_contracts::topics::sanitize_segment;
 use std::time::{Duration, Instant};
 
 /// Retained attribute keys per clock port. Order here is the UI column order.
@@ -151,19 +153,35 @@ fn device_prefix(seg: &str) -> String {
         .expect("a clock's topic segment is sanitized, so always a segment")
 }
 
-/// Every publish this agent makes: at most once, never retained, never stored.
-///
-/// One helper rather than the flag pair repeated at eleven call sites, so
-/// "unkept" is a property of the agent that cannot be half-applied by a future
-/// edit that forgets one argument.
-fn say(mqtt_client: &rumqttc::Client, topic: impl Into<String>, payload: impl Into<Vec<u8>>) {
-    let _ = mqtt_client.publish(
-        topic.into(),
-        rumqttc::QoS::AtMostOnce,
-        false,
-        payload.into(),
-    );
+/// One clock port as a presence sighting: identity = the clock identity plus
+/// port and domain (`topic_seg`, the Device tree's key), never an address.
+fn clock_sighting(
+    topic_seg: &str,
+    clock_id: &str,
+    vendor: &str,
+    grandmaster: bool,
+    notes: &str,
+) -> Sighting {
+    Sighting::new("ptp", topic_seg)
+        .class("Clock")
+        .made_by(
+            vendor,
+            if grandmaster {
+                "PTP Grandmaster"
+            } else {
+                "PTP Clock"
+            },
+        )
+        .serial(topic_seg)
+        .raw_idn(clock_id)
+        .notes(notes)
+        .status(DeviceRecordStatus::Identified)
 }
+
+// Every publish this agent makes goes through `apk_plugin_runner::unkept`:
+// `say` (QoS 0, never retained, never stored), `restate`, `report` and
+// `publications_of` — one copy in the runner instead of one per plugin, so
+// "unkept" cannot be half-applied by a future edit that forgets an argument.
 
 /// Blocking listen loop — run on a dedicated thread.
 pub fn run_listen_agent(mqtt_host: &str, mqtt_port: u16) {
@@ -175,20 +193,12 @@ pub fn run_listen_agent(mqtt_host: &str, mqtt_port: u16) {
             return;
         }
     };
-    let mut opts = rumqttc::MqttOptions::new("apkaudio-ptp", mqtt_host, mqtt_port);
-    opts.set_keep_alive(Duration::from_secs(30));
-    if let Some((username, password)) = apkaudio_contracts::broker_auth::credentials() {
-        opts.set_credentials(username, password);
-    }
-    let (mqtt_client, mut connection) = rumqttc::Client::new(opts, 64);
-    std::thread::spawn(move || {
-        apkaudio_contracts::broker_backoff::drain(
-            "ptp",
-            connection.iter(),
-            |e| matches!(e, rumqttc::ConnectionError::ConnectionRefused(_)),
-            |_| {},
-        );
-    });
+    // One session constructor for every plugin (credentials, unique client
+    // id, broker backoff on the drain thread): apk_plugin_runner::session.
+    let mqtt_client = Session::new(crate::self_test::MODULE, "listen")
+        .to(mqtt_host, mqtt_port)
+        .capacity(64)
+        .spawn_drained();
 
     let transports = Transports::open();
     for problem in &transports.problems {
@@ -198,6 +208,7 @@ pub fn run_listen_agent(mqtt_host: &str, mqtt_port: u16) {
         eprintln!("🛑 [PTP] no transport could be opened — agent not running");
         report(
             &mqtt_client,
+            "PTP",
             AgentReport::unavailable("ptp", &transports.problems.join(" | ")),
         );
         return;
@@ -230,7 +241,7 @@ pub fn run_listen_agent(mqtt_host: &str, mqtt_port: u16) {
     );
     // Kept in hand, not just sent: unretained, this account is true for one
     // heartbeat at a time and has to be restated for as long as it holds.
-    let state_publications = publications_of(account);
+    let state_publications = publications_of("PTP", account);
     restate(&mqtt_client, &state_publications);
 
     // Started once per run: it owns a cache and one worker thread, and every
@@ -465,19 +476,12 @@ fn flush(
         // clock listening for Sync is not. That distinction is the direction
         // question, and it belongs to the bridge; what is stated here is what
         // the thing IS.
-        let sighting = Sighting::new("ptp", &topic_seg)
-            .class("Clock")
-            .made_by(
-                &vendors.vendor(&clock_id).unwrap_or_else(dash),
-                if clock.is_grandmaster() {
-                    "PTP Grandmaster"
-                } else {
-                    "PTP Clock"
-                },
-            )
-            .serial(&topic_seg)
-            .raw_idn(&clock_id)
-            .notes(&format!(
+        let sighting = clock_sighting(
+            &topic_seg,
+            &clock_id,
+            &vendors.vendor(&clock_id).unwrap_or_else(dash),
+            clock.is_grandmaster(),
+            &format!(
                 "domain {}, port {}, {} steps removed",
                 clock.domain,
                 clock.key.port_number,
@@ -485,8 +489,8 @@ fn flush(
                     .steps_removed
                     .map(|s| s.to_string())
                     .unwrap_or_else(dash)
-            ))
-            .status(DeviceRecordStatus::Identified);
+            ),
+        );
         apk_plugin_runner::presence::seen(&sighting, Some(&prefix));
 
         // EVERY attribute, EVERY heartbeat. There is no dedupe here and there
@@ -600,50 +604,11 @@ fn unix_ms_now() -> i64 {
         .unwrap_or(0)
 }
 
-/// Report whether this agent can see the network.
-///
-/// Same reasoning as the AVB agent: the orchestrator infers `online` from the
-/// presence of a `config.ini`, which cannot know that a capability is missing.
-///
-/// The topics and the words are `agent_state`'s. This crate and
-/// `apkaudio-AVB-Milan` each held a private copy of them, which is a
-/// convention rather than a contract — and a convention is what the third
-/// publisher disagrees with.
-///
-/// The retain flag is NOT `agent_state`'s here. It says to retain, which is
-/// right for an agent that announces its state once at startup and is wrong
-/// for this one: unkept, a single startup publish would be heard by whoever
-/// happened to be subscribed in that instant and by nobody else ever. So the
-/// entries are returned rather than sent, and the caller restates them on
-/// every heartbeat — see `restate`.
-fn publications_of(account: Result<AgentReport, TopicError>) -> Vec<(String, Vec<u8>)> {
-    match account.and_then(|a| a.publications()) {
-        Ok(entries) => entries
-            .into_iter()
-            .map(|(topic, payload, _retain)| (topic, payload))
-            .collect(),
-        // A protocol name this agent controls cannot fail to be a segment, so
-        // this is a bug here rather than a bus condition: say so and keep
-        // capturing.
-        Err(e) => {
-            eprintln!("⚠️  [PTP] agent state not published: {e}");
-            Vec::new()
-        }
-    }
-}
-
-/// Send an agent-state account once.
-fn report(mqtt_client: &rumqttc::Client, account: Result<AgentReport, TopicError>) {
-    restate(mqtt_client, &publications_of(account));
-}
-
-/// Say the agent's state again. Cheap, and the only thing keeping it true:
-/// an unkept message is a statement with a shelf life of one heartbeat.
-fn restate(mqtt_client: &rumqttc::Client, entries: &[(String, Vec<u8>)]) {
-    for (topic, payload) in entries {
-        say(mqtt_client, topic.clone(), payload.clone());
-    }
-}
+// Report whether this agent can see the network: `AgentReport` via the
+// runner's `report` / `publications_of`. The topics and words are
+// `agent_state`'s; the retain flag is NOT — unkept, a single startup publish
+// would be heard by whoever happened to be subscribed in that instant, so the
+// entries are kept in hand and restated on every heartbeat (`restate`).
 
 #[cfg(test)]
 mod tests {
@@ -651,8 +616,8 @@ mod tests {
 
     /// The unkept policy, enforced rather than merely documented.
     ///
-    /// Every publish in this agent goes through `say`, which is the single
-    /// place the QoS and retain flags are chosen. Every OTHER agent in this
+    /// Every publish in this agent goes through `apk_plugin_runner::unkept`,
+    /// the single place the QoS and retain flags are chosen (QoS 0, not retained). Every OTHER agent in this
     /// tree publishes retained at QoS 1, so reaching for the client directly
     /// is the natural thing for a later edit to do — and one such call would
     /// put a PTP fact back into the broker's store, where it keeps answering
@@ -668,23 +633,74 @@ mod tests {
         let call = format!(".{}(", "publish");
         assert_eq!(
             source.matches(&call).count(),
-            1,
-            "every publish must go through say(); found a direct client call"
+            0,
+            "every publish must go through apk_plugin_runner::unkept; found a direct client call"
         );
-
-        // Compared with whitespace removed, so rustfmt laying the call's
-        // arguments out one per line does not read as a retained publish.
-        let squeezed: String = source.chars().filter(|c| !c.is_whitespace()).collect();
-        let unkept = format!("QoS::At{}Once,false", "Most");
         assert!(
-            squeezed.contains(&unkept),
-            "say() must publish QoS 0, not retained"
+            source.contains(&format!(
+                "unkept::{{publications_of, report, restate, {}}}",
+                "say"
+            )),
+            "say/restate/report are the runner's unkept helpers"
         );
 
         for kept in [format!("At{}Once", "Least"), format!("Exactly{}", "Once")] {
             assert!(
                 !source.contains(&kept),
                 "{kept} would queue this agent's messages for absent subscribers"
+            );
+        }
+    }
+
+    /// The clock's presence document is a contract `DeviceRecord`: it
+    /// round-trips the generated type and, in the monorepo, carries every
+    /// required key of `contracts/schemas/DeviceRecord.schema.json` and no
+    /// undeclared one. Identity is the clock identity segment, never an IP.
+    #[test]
+    fn the_presence_document_is_a_contract_device_record() {
+        use apkaudio_contracts::device_record::DeviceRecord;
+        let seg = "00_07_F5_FF_FE_00_54_72-1-d0";
+        let record = clock_sighting(
+            seg,
+            "00:07:F5:FF:FE:00:54:72",
+            "Bridgeco Co AG",
+            true,
+            "domain 0, port 1, 0 steps removed",
+        )
+        .record(1_700_000_000_000)
+        .expect("a clock sighting is a valid record");
+        let doc = serde_json::to_value(&record).unwrap();
+        let back: DeviceRecord =
+            serde_json::from_value(doc.clone()).expect("round-trips the schema type");
+        assert_eq!(serde_json::to_value(&back).unwrap(), doc);
+        assert_eq!(doc["protocol"], "ptp");
+        assert_eq!(
+            doc["serial"], seg,
+            "identity = clock identity + port + domain"
+        );
+
+        let schema = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../../../../contracts/schemas/DeviceRecord.schema.json");
+        let Ok(text) = std::fs::read_to_string(&schema) else {
+            eprintln!(
+                "(standalone: {} absent — typed check only)",
+                schema.display()
+            );
+            return;
+        };
+        let schema: serde_json::Value = serde_json::from_str(&text).unwrap();
+        let fields = doc.as_object().unwrap();
+        for key in schema["required"].as_array().unwrap() {
+            assert!(
+                fields.contains_key(key.as_str().unwrap()),
+                "missing required {key}"
+            );
+        }
+        let declared = schema["properties"].as_object().unwrap();
+        for key in fields.keys() {
+            assert!(
+                declared.contains_key(key),
+                "{key} is not a DeviceRecord property"
             );
         }
     }

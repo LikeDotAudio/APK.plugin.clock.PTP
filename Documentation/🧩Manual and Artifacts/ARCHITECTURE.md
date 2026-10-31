@@ -25,13 +25,12 @@ COMPOSE_PROFILES=l2 docker compose -f PODS/POD.THICK/PLUGINS/PLUGIN.PTP/Docker/d
 | Module | What |
 |---|---|
 | [`net.rs`](../../SRC/src/net.rs) | opens the transports: UDP 319/320 joined to the PTP groups, and AF_PACKET for EtherType 0x88F7 |
-| [`message.rs`](../../SRC/src/message.rs), [`v1.rs`](../../SRC/src/v1.rs) | decode PTPv2/gPTP and PTPv1 into one `PtpMessage` |
+| [`message.rs`](../../SRC/src/message.rs), [`v1.rs`](../../SRC/src/v1.rs) | decode PTPv2/gPTP (re-exporting the shared `apkaudio_ravenna::ptp`, PLUGIN.RAVENNA) and PTPv1 into one `PtpMessage` |
 | [`flow.rs`](../../SRC/src/flow.rs) | `FlowTracker` pairs Sync↔Follow_Up, Delay_Req↔Delay_Resp and the peer-delay chain |
 | [`diagnostics/`](../../SRC/src/diagnostics.rs) | offset, arrival jitter, BMCA election → a `Verdict` per port |
 | [`monitor.rs`](../../SRC/src/monitor.rs) | `ClockTable` and the receive loop shared by both binaries |
 | [`report.rs`](../../SRC/src/report.rs) | counters and the JSON snapshot |
 | [`agent.rs`](../../SRC/src/agent.rs) | `run_listen_agent`: flush, presence, counters, `udp_blocked` |
-| `clock.rs`, `parser.rs` | the legacy pyo3 shims, only with `--features python` |
 
 ## Data flow
 

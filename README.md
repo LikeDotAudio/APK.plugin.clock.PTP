@@ -21,7 +21,7 @@ Was a thread in `workers/discovery.rs`. Moved into its own container by PLAN-331
 ## What it does
 
 Listens on UDP 319/320 and raw Ethernet at once (`src/net.rs`), decodes PTPv1
-(`src/v1.rs`), PTPv2 and gPTP (`src/message.rs`), pairs messages into the
+(`src/v1.rs`), PTPv2 and gPTP (`src/message.rs` — the shared `apkaudio_ravenna::ptp` reader), pairs messages into the
 exchanges they form — Sync ↔ Follow_Up, Delay_Req ↔ Delay_Resp, the peer-delay
 chain (`src/flow.rs`) — and reads three diagnostics: offset from master,
 arrival jitter and BMCA election (`src/diagnostics/`). The clock table
@@ -78,8 +78,9 @@ document at `Discovery/ptp/{id}` and the `config.ini` publication, both owned by
 `apk-plugin-runner` and shared with every plugin. Presence is what says a clock
 has *gone* rather than merely stopped being restated.
 
-`agent.rs::nothing_this_agent_publishes_is_kept` enforces this at the source: one
-publish call in the crate, and it is `say`.
+`agent.rs::nothing_this_agent_publishes_is_kept` enforces this at the source: no
+direct publish call in the agent; every one is the runner's `unkept::say` /
+`restate` / `report`.
 
 ## `ptp-monitor`
 
@@ -103,15 +104,14 @@ the presence pair — `presence_protocols = ptp`, `presence_inactive_after_s = 9
 (3 × the flush). The broker is `MQTT_HOST` / `MQTT_PORT` from the runner, which
 publishes the retained config at `APK.audio/System/Protocols/ptp/config` and
 runs the self test (`src/self_test.rs`). `SRC/gui/manifest.json` and
-`SRC/gui/ptp/ptp.json` are the clock console panel. Each clock presents its own panel (PLAN-3413.01): `apk-ptp.rs` names `panels = [ptp]`, so apk-plugin-runner binds the template to every clock under `…/ptp/Device/<clock>` (`device_depth: 1`) and keeps it retained at `APK.audio/System/Gui/Panels/ptp-<clock>`, emptied when `last_online` says offline or after `panels_expire_after_s` (120 s) of silence. The "Online since" field reads `online_since`. The `python` feature builds
-the legacy pyo3 `clock` and `parser` shims; nothing above depends on them.
+`SRC/gui/ptp/ptp.json` are the clock console panel. Each clock presents its own panel (PLAN-3413.01): `apk-ptp.rs` names `panels = [ptp]`, so apk-plugin-runner binds the template to every clock under `…/ptp/Device/<clock>` (`device_depth: 1`) and keeps it retained at `APK.audio/System/Gui/Panels/ptp-<clock>`, emptied when `last_online` says offline or after `panels_expire_after_s` (120 s) of silence. The "Online since" field reads `online_since`. There is no Python binding:
+the legacy pyo3 `clock`/`parser` shims had no consumer and were dropped (2026-10-30 audit).
 
 ## Build, run, test
 
 ```sh
 # from PODS/POD.THICK/DISCOVERY.Engine/SRC
-cargo test -p apkaudio-ptp                       # 92 tests, one is `cargo fmt --check` (2026-10-30)
-cargo check -p apkaudio-ptp --features python    # compiles (2026-10-30)
+cargo test -p apkaudio-ptp                       # 85 tests, one is `cargo fmt --check` (2026-10-30; the PTPv2 parser's tests live with it in PLUGIN.RAVENNA)
 cargo build -p apkaudio-ptp --bin ptp-monitor
 
 COMPOSE_PROFILES=l2 docker compose -f PODS/POD.THICK/PLUGINS/PLUGIN.PTP/Docker/docker-compose.yml up -d --build
@@ -123,7 +123,7 @@ COMPOSE_PROFILES=l2 docker compose -f PODS/POD.THICK/PLUGINS/PLUGIN.PTP/Docker/d
 
 - **A clock fact is true only while the clock says it.** Nothing kept, the
   whole picture restated, presence the one retained witness of departure
-  (`src/agent.rs` header, `say`, `nothing_this_agent_publishes_is_kept`).
+  (`src/agent.rs` header, `unkept::say`, `nothing_this_agent_publishes_is_kept`).
 - **Unreachable is dead.** A clock silent for 30 s leaves the table and its
   presence goes inactive (`clock_timeout_s` in `config.ini`, `src/agent.rs`).
 - **A verdict, not a firehose.** `sync_health` is one word that changes when the

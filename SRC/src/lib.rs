@@ -1,12 +1,6 @@
 // Part of the APK.audio project — http://APK.audio — made by Anthony Kuzub
 // MIT Licence. Free, for everyone, for ever. Full text in LICENSE at the root.
-//! PTP (IEEE 1588) clock, parser and monitor.
-//!
-//! ONE lint is allowed crate-wide and it is not this crate's code:
-//! `unsafe_op_in_unsafe_fn` fires inside pyo3's `#[pymethods]` expansion in
-//! `clock` and `parser`. The four-lint blanket this replaced hid an unbound
-//! spec constant across a crate carrying 44 tests.
-#![allow(unsafe_op_in_unsafe_fn)]
+//! PTP (IEEE 1588) parser and monitor.
 //! `apkaudio-ptp` — PTP (IEEE 1588) discovery and live traffic monitoring.
 //!
 //! Watches all three clock protocols that can share one NIC — PTPv1
@@ -14,7 +8,7 @@
 //! and correlates them into the exchanges they actually form (Sync ↔ Follow_Up,
 //! Delay_Req ↔ Delay_Resp, the three-legged peer-delay chain).
 //!
-//! * [`message`] — PTPv2 / gPTP parsing
+//! * [`message`] — PTPv2 / gPTP parsing (the shared `apkaudio_ravenna::ptp`)
 //! * [`v1`] — PTPv1, which shares the wire but not the header layout
 //! * [`net`] — capture across UDP (319/320) and raw Ethernet (0x88F7)
 //! * [`flow`] — correlating messages into conversations
@@ -28,12 +22,8 @@
 //! The `ptp-monitor` binary is the live view; [`run_listen_agent`] is the MQTT
 //! agent. Both consume the same stream.
 //!
-//! # Legacy PyO3 shim
-//!
-//! The `clock` and `parser` modules predate this and remain gated behind the
-//! non-default `python` feature. They were `oa_ptp_clock_rs` and
-//! `oa_ptp_parser_rs` until PLAN-130.16; the Rust implementation above does
-//! not depend on either.
+//! There is no Python binding: the legacy pyo3 shims (`clock`, `parser`,
+//! feature `python`) had no consumer and were dropped (2026-10-30 audit).
 pub mod diagnostics;
 pub mod flow;
 pub mod message;
@@ -44,12 +34,6 @@ pub mod v1;
 
 mod agent;
 pub use agent::run_listen_agent;
-
-#[cfg(feature = "python")]
-pub mod clock;
-
-#[cfg(feature = "python")]
-pub mod parser;
 
 /// This crate's own self test — what it can prove about itself with nothing
 /// plugged in. Reached from the bus through `outgoing/selftest_run`; see
