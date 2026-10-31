@@ -7,8 +7,8 @@ edition = "2024"
 # does not expose; socket2 for SO_REUSEPORT on the shared UDP ports.
 [dependencies]
 # The container entry point in src/bin/apk-ptp.rs (PLAN-3316.01).
-apk-plugin-runner = { git = "https://github.com/LikeDotAudio/APK.plugin.SDK", tag = "sdk-v0.7" }
-apkaudio-contracts = { git = "https://github.com/LikeDotAudio/APK.plugin.SDK", tag = "sdk-v0.7" }
+apk-plugin-runner = { git = "https://github.com/LikeDotAudio/APK.plugin.SDK", tag = "sdk-v0.9" }
+apkaudio-contracts = { git = "https://github.com/LikeDotAudio/APK.plugin.SDK", tag = "sdk-v0.9" }
 libc = "0.2"
 # The PTPv2 / gPTP message parser is the shared AoIP reader in apkaudio-ravenna
 # (`ptp`), the same code PLUGIN.AES67's slave follows a grandmaster with.
@@ -20,7 +20,7 @@ rumqttc = "0.24"
 # A clock identity is a MAC with FF:FE inserted, so the OUI in it names the
 # manufacturer. Non-blocking by contract — see the crate docs; this agent
 # resolves from a capture thread.
-apkaudio-maclookup = { git = "https://github.com/LikeDotAudio/APK.plugin.protocol.MAC_LOOKUP", tag = "maclookup-v0.2.0" }
+apkaudio-maclookup = { git = "https://github.com/LikeDotAudio/APK.plugin.protocol.MAC_LOOKUP", tag = "maclookup-v0.3.0" }
 
 # No `python` feature: the pyo3 shims `clock`/`parser` (oa_ptp_clock_rs /
 # oa_ptp_parser_rs before PLAN-130.16) had no consumer anywhere in the monorepo
