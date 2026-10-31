@@ -7,8 +7,8 @@ edition = "2024"
 # does not expose; socket2 for SO_REUSEPORT on the shared UDP ports.
 [dependencies]
 # The container entry point in src/bin/apk-ptp.rs (PLAN-3316.01).
-apk-plugin-runner = { git = "https://github.com/LikeDotAudio/APK.plugin.SDK", tag = "sdk-v0.4" }
-apkaudio-contracts = { git = "https://github.com/LikeDotAudio/APK.plugin.SDK", tag = "sdk-v0.4" }
+apk-plugin-runner = { git = "https://github.com/LikeDotAudio/APK.plugin.SDK", tag = "sdk-v0.5" }
+apkaudio-contracts = { git = "https://github.com/LikeDotAudio/APK.plugin.SDK", tag = "sdk-v0.5" }
 libc = "0.2"
 socket2 = "0.6"
 rumqttc = "0.24"
