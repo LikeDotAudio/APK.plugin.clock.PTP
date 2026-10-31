@@ -69,8 +69,8 @@ What this means for readers:
 this agent was down. It is restated every heartbeat instead, so its readers
 (`WEB.Frontend-Assets/SRC/launcher/launch.py` and `launch_host_tools.py`,
 `OS/Clock/discovered-clocks/read-discovered-clocks.js`,
-`NODE.BareMetal/SRC/Core/ORCHESTRATOR:hunter:VISA/src/discovered/`,
-`Baremetal:Manager/interfaces_report.py`) see it within a heartbeat and see nothing once the
+`NODE.BareMetal/SRC/Core/ORCHESTRATOR.hunter.VISA/src/discovered/`,
+`Baremetal.Manager/interfaces_report.py`) see it within a heartbeat and see nothing once the
 agent stops — the honest reading of "this host's firewall state is unknown".
 
 Two things stay retained, because neither belongs to this crate: the presence
