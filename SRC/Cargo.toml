@@ -7,8 +7,8 @@ edition = "2024"
 # does not expose; socket2 for SO_REUSEPORT on the shared UDP ports.
 [dependencies]
 # The container entry point in src/bin/apk-ptp.rs (PLAN-3316.01).
-apk-plugin-runner = { git = "https://github.com/LikeDotAudio/APK.plugin.SDK", tag = "sdk-v0.5" }
-apkaudio-contracts = { git = "https://github.com/LikeDotAudio/APK.plugin.SDK", tag = "sdk-v0.5" }
+apk-plugin-runner = { git = "https://github.com/LikeDotAudio/APK.plugin.SDK", tag = "sdk-v0.6" }
+apkaudio-contracts = { git = "https://github.com/LikeDotAudio/APK.plugin.SDK", tag = "sdk-v0.6" }
 libc = "0.2"
 # The PTPv2 / gPTP message parser is the shared AoIP reader in apkaudio-ravenna
 # (`ptp`), the same code PLUGIN.AES67's slave follows a grandmaster with.
