@@ -29,6 +29,11 @@ root.
 * No release artefact or tag: the image is built locally on each node (`up -d --build`); tags are the owner's.
 * `ptp-monitor` is built into the image (`/usr/local/bin`) but has no file capabilities there; run by hand it needs `sudo` or `setcap cap_net_raw,cap_net_bind_service+eip`.
 
+## Delivered 2026-10-31: portable file names (no `:` `|` or case twins)
+
+- The monorepo now checks out on Windows and macOS: no tracked name holds `<>:"|?*`, a trailing dot or space, a device name or a case-only twin. Colon folders became dot folders (the POD.x convention).
+- References to the renamed folders updated (`Baremetal.Manager`, `ORCHESTRATOR.hunter.VISA`). Docs/comments only, no behaviour change.
+
 ## Delivered from the 2026-10-30 audit
 - **Release tag `ptp-v0.1.0`** — pushed 2026-10-31 with the owner's go-ahead.
 
