@@ -25,7 +25,7 @@ root.
 
 ## Not automated
 
-* CI is the SDK's reusable `plugin-ci.yml@sdk-v0.5` on every push; the monorepo CI builds nothing here, on purpose.
+* CI is the SDK's reusable `plugin-ci.yml@sdk-v0.7` (the tag the crate pins) on every push; the monorepo CI builds nothing here, on purpose.
 * No release artefact or tag: the image is built locally on each node (`up -d --build`); tags are the owner's.
 * `ptp-monitor` is built into the image (`/usr/local/bin`) but has no file capabilities there; run by hand it needs `sudo` or `setcap cap_net_raw,cap_net_bind_service+eip`.
 
@@ -46,3 +46,4 @@ the PTPv2 parser's 10 tests now run in PLUGIN.RAVENNA, with 2 more for AES67's n
 - **Shared plugin volumes** (finding 5) — the copied logs-volume block is `include: ../../../DISCOVERY.Engine/Docker/plugin-volumes.yml`.
 - **Kept by design: compose `extends` plugin-base.yml and the engine `[patch]` / `members/` link** (#4, finding 5) — the house plugin pattern; reason in PRINCIPLES.md.
 - **Shared crates by published tag** — `apkaudio-maclookup` repinned from `rev = "7ba39dd…"` to `tag = "maclookup-v0.2.0"` (published by W03) and `apkaudio-ravenna` to `tag = "ravenna-v0.2.0"`; a standalone `git archive HEAD` build runs `cargo test` green against the GitHub tags, and the workspace `cargo test -p` still passes.
+- **SDK repinned to `sdk-v0.7`** (2de0e7f) — `SRC/Cargo.toml` takes the runner and contracts, and `.github/workflows/ci.yml` calls `plugin-ci.yml`, at the same tag; it ships `docker/plugin-volumes.yml`, so plugin CI's standalone compose check resolves. Verified 2026-10-31: `git archive HEAD` alone, `cargo test` against GitHub — 85 pass (84 lib + 1); plugin-ci's compose step reproduced (`plugin-base.yml` + `plugin-volumes.yml` from `sdk-v0.7`, `docker compose config -q`) passes.
