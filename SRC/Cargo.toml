@@ -1,6 +1,6 @@
 [package]
 name = "apkaudio-ptp"
-version = "0.1.0"
+version = "2.0.0"
 edition = "2024"
 # PTP spans two transports: UDP (privileged ports 319/320) and raw Ethernet
 # (EtherType 0x88F7 for gPTP). libc is needed directly for AF_PACKET, which std
