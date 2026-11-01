@@ -653,8 +653,7 @@ mod tests {
 
     /// The manifest the binary compiles in parses, declares the loopback port
     /// and lists the keys of config.ini's [ptp] it reads (ROAD-3478).
-    /// ONE KEY IS UNREAD, honestly: `enabled` — neither this crate nor the
-    /// runner reads it.
+    /// None is unread: `enabled` is read by apk-plugin-runner (module_enabled).
     #[test]
     fn the_compiled_in_manifest_parses_and_reads_every_config_key() {
         let manifest = apkaudio_contracts::embedded_manifest!().expect("agent.toml parses");
@@ -669,8 +668,8 @@ mod tests {
             .collect();
         assert_eq!(
             manifest.unread_config_keys(keys),
-            Some(1),
-            "[ptp] keys nothing reads: only `enabled`"
+            Some(0),
+            "every [ptp] key is read — `enabled` by the runner (module_enabled)"
         );
     }
 
