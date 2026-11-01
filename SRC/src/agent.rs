@@ -215,6 +215,7 @@ pub fn run_listen_agent(mqtt_host: &str, mqtt_port: u16) {
         Err(why) => {
             // The compiled-in file is wrong: a build defect, said once, loudly.
             eprintln!("🛑 [PTP] {why}");
+            apk_plugin_runner::loopback::fatal(why);
             return;
         }
     };
@@ -236,6 +237,10 @@ pub fn run_listen_agent(mqtt_host: &str, mqtt_port: u16) {
             "PTP",
             AgentReport::unavailable("ptp", &transports.problems.join(" | ")),
         );
+        apk_plugin_runner::loopback::fatal(format!(
+            "no transport could be opened: {}",
+            transports.problems.join(" | ")
+        ));
         return;
     }
 
@@ -333,6 +338,10 @@ pub fn run_listen_agent(mqtt_host: &str, mqtt_port: u16) {
         &mut tracker,
         |obs| {
             if let Some(obs) = &obs {
+                // TRAFFIC, counted for the loopback telemetry (ROAD-3478):
+                // every PTP message taken off the wire — UDP 319/320 or raw
+                // Ethernet — decodable or not, is one packet.
+                apk_plugin_runner::loopback::packet_received();
                 match obs {
                     Observation::V2(_, _, meta) | Observation::V1(_, meta) => {
                         if meta.port.is_some() {
@@ -641,6 +650,29 @@ fn unix_ms_now() -> i64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The manifest the binary compiles in parses, declares the loopback port
+    /// and lists the keys of config.ini's [ptp] it reads (ROAD-3478).
+    /// ONE KEY IS UNREAD, honestly: `enabled` — neither this crate nor the
+    /// runner reads it.
+    #[test]
+    fn the_compiled_in_manifest_parses_and_reads_every_config_key() {
+        let manifest = apkaudio_contracts::embedded_manifest!().expect("agent.toml parses");
+        assert_eq!(manifest.name, "ptp");
+        assert_eq!(manifest.telemetry_port, 8212);
+        let config = apk_plugin_runner::ini_to_json(include_str!("../config.ini"));
+        let keys: Vec<&str> = config["ptp"]
+            .as_object()
+            .unwrap()
+            .keys()
+            .map(String::as_str)
+            .collect();
+        assert_eq!(
+            manifest.unread_config_keys(keys),
+            Some(1),
+            "[ptp] keys nothing reads: only `enabled`"
+        );
+    }
 
     /// The unkept policy, enforced rather than merely documented.
     ///

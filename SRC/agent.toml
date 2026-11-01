@@ -1,0 +1,31 @@
+# Part of the APK.audio project — http://APK.audio — made by Anthony Kuzub
+# MIT Licence. Free, for everyone, for ever. Full text in LICENSE at the root.
+#
+# WHAT THIS AGENT IS, compiled into apk-ptp by `manifest = "agent.toml"` in
+# src/bin/apk-ptp.rs (apkaudio_contracts::embedded_manifest!, ROAD-3472 /
+# ROAD-3478). Not read at run time: the image carries the binary, not this file.
+# `ptp-monitor`, the hand tool beside it, declares nothing.
+
+[agent]
+name = "ptp"
+kind = "protocol"
+title = "PTP (IEEE 1588 v1 / v2 / gPTP) clock listener"
+status = "discovery-only"
+summary = "Listens on UDP 319/320 and raw Ethernet for PTP v1, v2 and gPTP, and publishes every clock it hears, the elected grandmaster and the synchronization faults, restated every heartbeat. Listen only."
+
+[telemetry]
+# GET /status and GET /telemetry on 127.0.0.1:8212 (host networking, so this
+# is the node's loopback and NODE.BareMetal's supervisor reads it). `running`
+# until the first PTP message, `serving` after. A packet is every PTP message
+# taken off the wire, UDP or L2, decodable or not (agent.rs::run_listen_agent's
+# run_paced callback, on `Some(observation)`; the per-pass `None` pulse is not
+# counted). APK_TELEMETRY_PORT moves it; 0 turns it off.
+port = 8212
+
+[config]
+# The keys of config.ini's [ptp] that code reads: heartbeat_s, first_flush_s,
+# clock_timeout_s by Settings::from_ini (src/agent.rs); raise by
+# apk-plugin-runner (module_raise); presence_* by presence::settings_from_config;
+# panels_expire_after_s by panels. `enabled` is read by nothing and is left
+# out on purpose, so `unread_config_keys` says 1.
+reads = ["raise", "heartbeat_s", "first_flush_s", "clock_timeout_s", "presence_protocols", "presence_inactive_after_s", "panels_expire_after_s"]

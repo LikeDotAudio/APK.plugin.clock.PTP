@@ -8,10 +8,15 @@
 //!
 //! `panels = [ptp]`: every clock presents its own panel, retained at
 //! `APK.audio/System/Gui/Panels/ptp-<clock>` (`device_depth: 1`).
+//!
+//! `manifest = "agent.toml"` (ROAD-3478): the manifest is compiled in, and the
+//! runner serves `GET /status` / `GET /telemetry` on 127.0.0.1:8212 — `running`
+//! until the first PTP message, `serving` after.
 
 apk_plugin_runner::main!(
     token = "ptp",
     lib = apkaudio_ptp,
     run = [run_listen_agent],
-    panels = [ptp]
+    panels = [ptp],
+    manifest = "agent.toml"
 );
