@@ -7,6 +7,9 @@
   "ptp": {
     "tab": "6_PTP",
     "tree": "7_Device_Consoles",
-    "device_depth": 1
+    "device_depth": 1,
+    "bim": {
+      "part": "protocol/ptp"
+    }
   }
 }
