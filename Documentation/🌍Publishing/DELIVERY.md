@@ -54,5 +54,12 @@ the PTPv2 parser's 10 tests now run in PLUGIN.RAVENNA, with 2 more for AES67's n
 - **SDK repinned to `sdk-v0.7`** (2de0e7f) — `SRC/Cargo.toml` takes the runner and contracts, and `.github/workflows/ci.yml` calls `plugin-ci.yml`, at the same tag; it ships `docker/plugin-volumes.yml`, so plugin CI's standalone compose check resolves. Verified 2026-10-31: `git archive HEAD` alone, `cargo test` against GitHub — 85 pass (84 lib + 1); plugin-ci's compose step reproduced (`plugin-base.yml` + `plugin-volumes.yml` from `sdk-v0.7`, `docker compose config -q`) passes.
 - **SDK `sdk-v0.9`** (PLAN-3432.01) — `SRC/Cargo.toml` takes the SDK at `tag = "sdk-v0.9"`; `.github/workflows/ci.yml` calls `plugin-ci.yml@sdk-v0.9`; LIB.MAC_LOOKUP at `maclookup-v0.3.0` (each released on `sdk-v0.9`). Verified 2026-10-31: the tree alone (`git archive`, no `.cargo` patch) against GitHub, `cargo test --workspace --locked` in `SRC` — 85 pass; one `apkaudio-contracts` in the lock.
 
+## Delivered 2026-11-11 – 2026-11-12
+
+From this repository's own commits (the commit message is the record):
+
+- pin sdk-v2.4 and the providers re-released on it (ROAD-3731: contracts 2.4.0 published) (`a0eb804`)
+- ROAD-3731: error/warn prints go through apk_plugin_runner::elog! (5 lines) so they reach System/Log/<token>/<level> (`ac7c26a`)
+
 ## Releases
 - **Released `2.0.0`, tag `v2.0.0`** (2026-11-01, ROAD-3452, the owner's V2) — on `sdk-v2.0` (contracts 2.0.0); every manifest says 2.0.0; GitHub release `v2.0.0`.
