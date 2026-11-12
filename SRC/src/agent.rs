@@ -214,7 +214,7 @@ pub fn run_listen_agent(mqtt_host: &str, mqtt_port: u16) {
         Ok(s) => s,
         Err(why) => {
             // The compiled-in file is wrong: a build defect, said once, loudly.
-            eprintln!("🛑 [PTP] {why}");
+            apk_plugin_runner::elog!(error, "🛑 [PTP] {why}");
             apk_plugin_runner::loopback::fatal(why);
             return;
         }
@@ -228,10 +228,13 @@ pub fn run_listen_agent(mqtt_host: &str, mqtt_port: u16) {
 
     let transports = Transports::open();
     for problem in &transports.problems {
-        eprintln!("⚠️  [PTP] {problem}");
+        apk_plugin_runner::elog!(warn, "⚠️  [PTP] {problem}");
     }
     if !transports.any_open() {
-        eprintln!("🛑 [PTP] no transport could be opened — agent not running");
+        apk_plugin_runner::elog!(
+            error,
+            "🛑 [PTP] no transport could be opened — agent not running"
+        );
         report(
             &mqtt_client,
             "PTP",
@@ -619,7 +622,7 @@ fn report_reception(mqtt_client: &rumqttc::Client, counters: &Sampler, udp_open:
         Ok((topic, payload, _retain)) => say(mqtt_client, topic, payload),
         // A malformed sample is a bug in this agent, not a reason to take the
         // capture loop down: say so once per flush and keep listening.
-        Err(e) => eprintln!("⚠️  [PTP] counters not published: {e}"),
+        Err(e) => apk_plugin_runner::elog!(warn, "⚠️  [PTP] counters not published: {e}"),
     }
 
     let udp = counters.get("udpSeen");
@@ -627,7 +630,7 @@ fn report_reception(mqtt_client: &rumqttc::Client, counters: &Sampler, udp_open:
     let blocked = udp_open && udp == 0 && l2 > 0;
     match apkaudio_contracts::agent_state::agent_topic(crate::self_test::MODULE, "udp_blocked") {
         Ok(topic) => say(mqtt_client, topic, blocked.to_string().into_bytes()),
-        Err(e) => eprintln!("⚠️  [PTP] udp_blocked not published: {e}"),
+        Err(e) => apk_plugin_runner::elog!(warn, "⚠️  [PTP] udp_blocked not published: {e}"),
     }
 }
 
