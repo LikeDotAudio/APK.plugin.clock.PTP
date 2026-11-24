@@ -32,11 +32,14 @@ pub mod net;
 pub mod report;
 pub mod v1;
 
+#[cfg(feature = "agent")]
 mod agent;
+#[cfg(feature = "agent")]
 pub use agent::run_listen_agent;
 
 /// This crate's own self test — what it can prove about itself with nothing
 /// plugged in. Reached from the bus through `outgoing/selftest_run`; see
 /// `apkaudio_contracts::self_test` for the two inputs and the withdrawal the
 /// first of them performs. PLAN-459.01.
+#[cfg(feature = "agent")]
 pub mod self_test;

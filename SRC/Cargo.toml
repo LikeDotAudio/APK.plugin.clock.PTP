@@ -7,25 +7,36 @@ edition = "2024"
 # does not expose; socket2 for SO_REUSEPORT on the shared UDP ports.
 [dependencies]
 # The container entry point in src/bin/apk-ptp.rs (PLAN-3316.01).
-apk-plugin-runner = { git = "https://github.com/LikeDotAudio/APK.plugin.SDK", tag = "sdk-v2.5" }
-apkaudio-contracts = { git = "https://github.com/LikeDotAudio/APK.plugin.SDK", tag = "sdk-v2.5" }
+apk-plugin-runner = { git = "https://github.com/LikeDotAudio/APK.plugin.SDK", tag = "sdk-v2.5", optional = true }
+apkaudio-contracts = { git = "https://github.com/LikeDotAudio/APK.plugin.SDK", tag = "sdk-v2.5", optional = true }
 libc = "0.2"
 # The PTPv2 / gPTP message parser is the shared AoIP reader in apkaudio-ravenna
 # (`ptp`), the same code PLUGIN.AES67's slave follows a grandmaster with.
 # `default-features = false` takes the readers only — no mDNS, no agent.
 apkaudio-ravenna = { git = "https://github.com/LikeDotAudio/APK.plugin.discovery.RAVENNA", tag = "ravenna-v2.5.0", default-features = false }
-socket2 = "0.6"
-rumqttc = "0.24"
+socket2 = { version = "0.6", features = ["all"] }
+rumqttc = { version = "0.24", optional = true }
 
 # A clock identity is a MAC with FF:FE inserted, so the OUI in it names the
 # manufacturer. Non-blocking by contract — see the crate docs; this agent
 # resolves from a capture thread.
-apkaudio-maclookup = { git = "https://github.com/LikeDotAudio/APK.plugin.protocol.MAC_LOOKUP", tag = "maclookup-v2.5.0" }
+apkaudio-maclookup = { git = "https://github.com/LikeDotAudio/APK.plugin.protocol.MAC_LOOKUP", tag = "maclookup-v2.5.0", optional = true }
 
 # No `python` feature: the pyo3 shims `clock`/`parser` (oa_ptp_clock_rs /
 # oa_ptp_parser_rs before PLAN-130.16) had no consumer anywhere in the monorepo
 # and a second, private PTP parser; they were dropped by the 2026-10-30 audit.
 # Their source is in this repository's history (before that commit).
+
+[target.'cfg(not(target_os = "linux"))'.dependencies]
+# Interface list on Windows / macOS (Linux reads /sys/class/net).
+if-addrs = "0.13"
+
+[features]
+# The MQTT agent (apk-ptp container) and its bus self test. Off, the crate is the sniffer
+# alone - parser, capture, diagnostics, report - for hosts that embed it (the Ward-Beck
+# Audio Tap) and for Windows / macOS builds that have no use for the broker client.
+default = ["agent"]
+agent = ["dep:apk-plugin-runner", "dep:apkaudio-contracts", "dep:rumqttc", "dep:apkaudio-maclookup"]
 
 [dev-dependencies]
 # The presence-document contract test reads DeviceRecord as JSON.
@@ -38,3 +49,4 @@ path = "src/bin/ptp-monitor.rs"
 [[bin]]
 name = "apk-ptp"
 path = "src/bin/apk-ptp.rs"
+required-features = ["agent"]

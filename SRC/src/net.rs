@@ -97,6 +97,7 @@ pub fn explain_error(e: &io::Error) -> String {
 }
 
 /// Interfaces we can listen on, excluding loopback and virtual bridges.
+#[cfg(target_os = "linux")]
 pub fn list_interfaces() -> io::Result<Vec<(String, u32, [u8; 6], Ipv4Addr)>> {
     let mut out = Vec::new();
     for entry in std::fs::read_dir("/sys/class/net")? {
@@ -134,7 +135,25 @@ pub fn list_interfaces() -> io::Result<Vec<(String, u32, [u8; 6], Ipv4Addr)>> {
     Ok(out)
 }
 
+/// Interfaces with an IPv4 address (Windows, macOS): name, index, no MAC (raw capture is
+/// Linux-only, and the MAC is only used to join the PTP multicast MACs there).
+#[cfg(not(target_os = "linux"))]
+pub fn list_interfaces() -> io::Result<Vec<(String, u32, [u8; 6], Ipv4Addr)>> {
+    let mut out: Vec<(String, u32, [u8; 6], Ipv4Addr)> = if_addrs::get_if_addrs()?
+        .into_iter()
+        .filter(|i| !i.is_loopback())
+        .filter_map(|i| match i.ip() {
+            std::net::IpAddr::V4(v4) => Some((i.name.clone(), i.index.unwrap_or(0), [0u8; 6], v4)),
+            _ => None,
+        })
+        .collect();
+    out.sort_by(|a, b| a.0.cmp(&b.0));
+    out.dedup_by(|a, b| a.0 == b.0);
+    Ok(out)
+}
+
 /// The IPv4 address bound to an interface, via `SIOCGIFADDR`.
+#[cfg(target_os = "linux")]
 fn local_ipv4(name: &str) -> Option<Ipv4Addr> {
     let fd = unsafe { libc::socket(libc::AF_INET, libc::SOCK_DGRAM, 0) };
     if fd < 0 {
@@ -307,16 +326,42 @@ fn recv_with_interface(
 /// `AF_PACKET` socket, same multicast-membership-not-promiscuous reasoning,
 /// different EtherType and groups. Two users is not yet three, so the shared
 /// abstraction is deliberately not extracted; see this crate's README.
+#[cfg(target_os = "linux")]
 pub struct L2Capture {
     fd: i32,
 }
 
+/// Raw Ethernet capture exists on Linux only (AF_PACKET). Elsewhere it never opens, and
+/// `Transports::open` reports why: UDP PTPv1/PTPv2 is still heard, gPTP is not.
+#[cfg(not(target_os = "linux"))]
+pub struct L2Capture;
+
+#[cfg(not(target_os = "linux"))]
+impl L2Capture {
+    pub fn open(_interfaces: &[(String, u32, [u8; 6], Ipv4Addr)]) -> io::Result<Self> {
+        Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "raw Ethernet capture is Linux-only (AF_PACKET); gPTP is not heard on this OS",
+        ))
+    }
+
+    pub fn recv(
+        &self,
+        _buf: &mut [u8],
+        _name_of: &dyn Fn(u32) -> String,
+    ) -> io::Result<Option<Captured>> {
+        Ok(None)
+    }
+}
+
+#[cfg(target_os = "linux")]
 impl Drop for L2Capture {
     fn drop(&mut self) {
         unsafe { libc::close(self.fd) };
     }
 }
 
+#[cfg(target_os = "linux")]
 impl L2Capture {
     /// Open a raw socket filtered to EtherType 0x88F7 and join both PTP
     /// multicast MACs on every interface.
