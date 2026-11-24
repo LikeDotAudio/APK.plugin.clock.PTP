@@ -177,6 +177,23 @@ impl UdpCapture {
         socket.set_reuse_port(true)?;
         socket.bind(&SocketAddr::from((Ipv4Addr::UNSPECIFIED, port)).into())?;
         socket.set_read_timeout(Some(std::time::Duration::from_millis(200)))?;
+        // IP_PKTINFO: every datagram says which NIC it arrived on. A multi-homed
+        // host can carry two PTP networks on the same domain, and without the
+        // interface their grandmasters read as one contested election.
+        #[cfg(target_os = "linux")]
+        {
+            use std::os::fd::AsRawFd;
+            let on: libc::c_int = 1;
+            unsafe {
+                libc::setsockopt(
+                    socket.as_raw_fd(),
+                    libc::IPPROTO_IP,
+                    libc::IP_PKTINFO,
+                    &on as *const _ as *const libc::c_void,
+                    std::mem::size_of::<libc::c_int>() as libc::socklen_t,
+                );
+            }
+        }
         let socket: UdpSocket = socket.into();
 
         let groups: Vec<Ipv4Addr> = [PTP_PRIMARY_GROUP, PTP_PDELAY_GROUP]
@@ -198,14 +215,14 @@ impl UdpCapture {
 
     /// Receive one datagram. `Ok(None)` on timeout.
     pub fn recv(&self, buf: &mut [u8]) -> io::Result<Option<Captured>> {
-        match self.socket.recv_from(buf) {
-            Ok((n, from)) => Ok(Some(Captured {
+        match recv_with_interface(&self.socket, buf) {
+            Ok((n, from, interface)) => Ok(Some(Captured {
                 payload: buf[..n].to_vec(),
                 // Refined by the parser: v1 is detected from the payload.
                 variant: Variant::V2Udp,
-                source: from.ip().to_string(),
+                source: from.to_string(),
                 port: Some(self.port),
-                interface: "udp".to_string(),
+                interface: interface.unwrap_or_else(|| "udp".to_string()),
             })),
             Err(ref e)
                 if matches!(
@@ -218,6 +235,70 @@ impl UdpCapture {
             Err(e) => Err(e),
         }
     }
+}
+
+/// recvmsg with IP_PKTINFO: the datagram, its sender, and the NIC it came in on.
+#[cfg(target_os = "linux")]
+fn recv_with_interface(
+    socket: &UdpSocket,
+    buf: &mut [u8],
+) -> io::Result<(usize, Ipv4Addr, Option<String>)> {
+    use std::os::fd::AsRawFd;
+    let mut from: libc::sockaddr_in = unsafe { std::mem::zeroed() };
+    let mut iov = libc::iovec {
+        iov_base: buf.as_mut_ptr() as *mut libc::c_void,
+        iov_len: buf.len(),
+    };
+    let mut control = [0u8; 128];
+    let mut msg: libc::msghdr = unsafe { std::mem::zeroed() };
+    msg.msg_name = &mut from as *mut _ as *mut libc::c_void;
+    msg.msg_namelen = std::mem::size_of::<libc::sockaddr_in>() as libc::socklen_t;
+    msg.msg_iov = &mut iov;
+    msg.msg_iovlen = 1;
+    msg.msg_control = control.as_mut_ptr() as *mut libc::c_void;
+    msg.msg_controllen = control.len() as _;
+    let n = unsafe { libc::recvmsg(socket.as_raw_fd(), &mut msg, 0) };
+    if n < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    let mut interface = None;
+    unsafe {
+        let mut cmsg = libc::CMSG_FIRSTHDR(&msg);
+        while !cmsg.is_null() {
+            if (*cmsg).cmsg_level == libc::IPPROTO_IP && (*cmsg).cmsg_type == libc::IP_PKTINFO {
+                let info = &*(libc::CMSG_DATA(cmsg) as *const libc::in_pktinfo);
+                let mut name = [0 as libc::c_char; libc::IF_NAMESIZE];
+                if !libc::if_indextoname(info.ipi_ifindex as libc::c_uint, name.as_mut_ptr())
+                    .is_null()
+                {
+                    interface = Some(
+                        std::ffi::CStr::from_ptr(name.as_ptr())
+                            .to_string_lossy()
+                            .into_owned(),
+                    );
+                }
+            }
+            cmsg = libc::CMSG_NXTHDR(&msg, cmsg);
+        }
+    }
+    Ok((
+        n as usize,
+        Ipv4Addr::from(u32::from_be(from.sin_addr.s_addr)),
+        interface,
+    ))
+}
+
+#[cfg(not(target_os = "linux"))]
+fn recv_with_interface(
+    socket: &UdpSocket,
+    buf: &mut [u8],
+) -> io::Result<(usize, Ipv4Addr, Option<String>)> {
+    let (n, from) = socket.recv_from(buf)?;
+    let ip = match from.ip() {
+        std::net::IpAddr::V4(v4) => v4,
+        _ => Ipv4Addr::UNSPECIFIED,
+    };
+    Ok((n, ip, None))
 }
 
 /// Raw Layer 2 capture for PTP over Ethernet and gPTP.

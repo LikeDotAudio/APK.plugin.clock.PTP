@@ -82,7 +82,7 @@ fn number(value: Option<f64>, places: usize) -> String {
 /// The diagnostics for one clock: what its Sync stream looks like, how far
 /// this host's clock sits from it, and what the fabric added on the way.
 fn clock_diagnostics_json(diagnostics: &Diagnostics, record: &ClockRecord) -> String {
-    let verdict = diagnostics.verdict(&record.key, record.grandmaster);
+    let verdict = diagnostics.verdict_on(&record.key, record.grandmaster, Some(&record.interface));
     let sync = diagnostics.arrival.stream(&record.key, MessageType::Sync);
     let announce = diagnostics
         .arrival
@@ -134,7 +134,7 @@ fn clock_diagnostics_json(diagnostics: &Diagnostics, record: &ClockRecord) -> St
 /// separate problems.
 fn elections_json(diagnostics: &Diagnostics, now: Instant) -> String {
     let mut domains: Vec<_> = diagnostics.election.domains.values().collect();
-    domains.sort_by_key(|d| (d.domain, d.variant.label()));
+    domains.sort_by_key(|d| (d.domain, d.variant.label(), d.interface.clone()));
 
     let blocks: Vec<String> = domains
         .iter()
@@ -195,9 +195,10 @@ fn elections_json(diagnostics: &Diagnostics, now: Instant) -> String {
 
             format!(
                 concat!(
-                    "{{\"domain\":{},\"variant\":{},\"elected\":{},\"unresolved\":{},",
+                    "{{\"interface\":{},\"domain\":{},\"variant\":{},\"elected\":{},\"unresolved\":{},",
                     "\"changes\":{},\"held_for_s\":{:.3},\"claims\":[{}],\"history\":[{}]}}"
                 ),
+                s(&election.interface),
                 election.domain,
                 s(election.variant.label()),
                 json_text_or_null(election.elected.map(|g| format_clock_id(&g)).as_deref()),
@@ -287,14 +288,15 @@ pub fn snapshot_json(
     // or a split network. Carried as its own list so a reader does not have to
     // re-derive it by grouping the rows.
     let mut conflicts: Vec<String> = table
-        .grandmasters_by_domain()
+        .grandmasters_by_segment()
         .into_iter()
         .filter(|(_, gms)| gms.len() > 1)
-        .map(|((domain, variant), gms)| {
+        .map(|((interface, domain, variant), gms)| {
             let mut ids: Vec<String> = gms.iter().map(|g| s(&format_clock_id(g))).collect();
             ids.sort();
             format!(
-                "{{\"domain\":{domain},\"variant\":{},\"grandmasters\":[{}]}}",
+                "{{\"interface\":{},\"domain\":{domain},\"variant\":{},\"grandmasters\":[{}]}}",
+                s(&interface),
                 s(variant.label()),
                 ids.join(",")
             )

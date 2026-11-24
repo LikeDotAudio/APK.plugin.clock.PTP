@@ -389,6 +389,22 @@ impl ClockTable {
     /// More than one in the same domain means an unresolved BMCA election or a
     /// split network — devices following different grandmasters are not on the
     /// same time and cannot exchange audio.
+    /// The same, per NIC: two networks on one domain number are not a conflict.
+    pub fn grandmasters_by_segment(&self) -> HashMap<(String, u8, Variant), Vec<[u8; 8]>> {
+        let mut out: HashMap<(String, u8, Variant), Vec<[u8; 8]>> = HashMap::new();
+        for c in self.clocks.values() {
+            if let Some(gm) = c.grandmaster {
+                let list = out
+                    .entry((c.interface.clone(), c.domain, c.variant))
+                    .or_default();
+                if !list.contains(&gm) {
+                    list.push(gm);
+                }
+            }
+        }
+        out
+    }
+
     pub fn grandmasters_by_domain(&self) -> HashMap<(u8, Variant), Vec<[u8; 8]>> {
         let mut out: HashMap<(u8, Variant), Vec<[u8; 8]>> = HashMap::new();
         for c in self.clocks.values() {

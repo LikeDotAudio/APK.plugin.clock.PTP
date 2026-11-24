@@ -153,6 +153,8 @@ pub struct ElectionChange {
 /// elect differently. Merged, a perfectly healthy pair of independent
 /// elections reads as one domain that cannot make up its mind.
 pub struct DomainElection {
+    /// The NIC this election was heard on: two segments on one domain are two elections.
+    pub interface: String,
     pub domain: u8,
     pub variant: Variant,
     pub claims: HashMap<[u8; 8], GrandmasterClaim>,
@@ -165,6 +167,7 @@ pub struct DomainElection {
 impl DomainElection {
     fn new(domain: u8, variant: Variant, at: Instant) -> Self {
         Self {
+            interface: String::new(),
             domain,
             variant,
             claims: HashMap::new(),
@@ -289,10 +292,14 @@ impl DomainElection {
     }
 }
 
-/// Every domain's election, across every variant on the wire.
+/// Every domain's election, across every variant on the wire, per interface.
+///
+/// Keyed by the NIC as well: a multi-homed host can sit on two PTP networks that
+/// use the same domain number, and each correctly elects its own grandmaster.
+/// Merged, they would read as one election that never resolves.
 #[derive(Default)]
 pub struct ElectionWatch {
-    pub domains: HashMap<(u8, Variant), DomainElection>,
+    pub domains: HashMap<(String, u8, Variant), DomainElection>,
 }
 
 impl ElectionWatch {
@@ -300,10 +307,19 @@ impl ElectionWatch {
     /// still drives the expiry sweep, because a master going silent is a
     /// change that no message announces.
     pub fn observe(&mut self, message: &PtpMessage, at: Instant) {
+        self.observe_on(message, "", at);
+    }
+
+    /// Feed one message heard on `interface`.
+    pub fn observe_on(&mut self, message: &PtpMessage, interface: &str, at: Instant) {
         if message.message_type == MessageType::Announce {
             self.domains
-                .entry((message.domain, message.variant))
-                .or_insert_with(|| DomainElection::new(message.domain, message.variant, at))
+                .entry((interface.to_string(), message.domain, message.variant))
+                .or_insert_with(|| {
+                    let mut e = DomainElection::new(message.domain, message.variant, at);
+                    e.interface = interface.to_string();
+                    e
+                })
                 .observe(message, at);
         }
         self.settle(at);
@@ -317,9 +333,25 @@ impl ElectionWatch {
         }
     }
 
-    /// The election covering a port, if that port's domain has one.
+    /// The election covering a port, if that port's domain has one (any interface).
     pub fn domain(&self, domain: u8, variant: Variant) -> Option<&DomainElection> {
-        self.domains.get(&(domain, variant))
+        self.domain_on(None, domain, variant)
+    }
+
+    /// The election on one interface; `None` takes the domain on any interface.
+    pub fn domain_on(
+        &self,
+        interface: Option<&str>,
+        domain: u8,
+        variant: Variant,
+    ) -> Option<&DomainElection> {
+        match interface {
+            Some(i) => self.domains.get(&(i.to_string(), domain, variant)),
+            None => self
+                .domains
+                .values()
+                .find(|e| e.domain == domain && e.variant == variant),
+        }
     }
 
     /// The claim a given grandmaster identity is making, wherever it is.
@@ -329,7 +361,10 @@ impl ElectionWatch {
         variant: Variant,
         identity: &[u8; 8],
     ) -> Option<&GrandmasterClaim> {
-        self.domains.get(&(domain, variant))?.claims.get(identity)
+        self.domains
+            .values()
+            .filter(|e| e.domain == domain && e.variant == variant)
+            .find_map(|e| e.claims.get(identity))
     }
 }
 
@@ -395,6 +430,23 @@ mod tests {
         );
         assert_eq!(election.changes, 2);
         assert_eq!(election.history.back().unwrap().reason, Reason::BetterClock);
+    }
+
+    /// The same domain on two NICs is two networks, each with its own leader:
+    /// neither election is contested.
+    #[test]
+    fn one_domain_on_two_interfaces_is_two_elections() {
+        let mut watch = ElectionWatch::default();
+        let at = Instant::now();
+        watch.observe_on(&announce(WORSE, WORSE, 128, 6, 128, 0, 1), "enp5s0f0", at);
+        watch.observe_on(&announce(BETTER, BETTER, 128, 6, 128, 0, 1), "enp12s0", at);
+        let a = watch
+            .domain_on(Some("enp5s0f0"), 0, Variant::V2Udp)
+            .unwrap();
+        let b = watch.domain_on(Some("enp12s0"), 0, Variant::V2Udp).unwrap();
+        assert!(!a.unresolved() && !b.unresolved());
+        assert_eq!(a.elected, Some(WORSE));
+        assert_eq!(b.elected, Some(BETTER));
     }
 
     /// Two masters announcing at once is either an election in progress or a

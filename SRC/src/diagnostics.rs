@@ -120,7 +120,7 @@ impl Diagnostics {
     pub fn observe(&mut self, message: &PtpMessage, meta: &Meta) {
         self.arrival.observe(message, meta.at);
         self.offset.observe(message, meta.wall, meta.at);
-        self.election.observe(message, meta.at);
+        self.election.observe_on(message, &meta.interface, meta.at);
     }
 
     /// Re-run the elections against the clock, with no message to drive it.
@@ -170,7 +170,17 @@ impl Diagnostics {
     /// Ordered worst-first: the first condition that holds is the answer, so a
     /// contested domain is never reported as merely jittery.
     pub fn verdict(&self, key: &PortKey, grandmaster: Option<[u8; 8]>) -> Verdict {
-        if let Some(domain) = self.election.domain(key.domain, key.variant) {
+        self.verdict_on(key, grandmaster, None)
+    }
+
+    /// The verdict judged against the election on the NIC the port was heard on.
+    pub fn verdict_on(
+        &self,
+        key: &PortKey,
+        grandmaster: Option<[u8; 8]>,
+        interface: Option<&str>,
+    ) -> Verdict {
+        if let Some(domain) = self.election.domain_on(interface, key.domain, key.variant) {
             if domain.unresolved() {
                 return Verdict::Contested;
             }
